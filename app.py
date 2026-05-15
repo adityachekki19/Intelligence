@@ -1,903 +1,465 @@
-import streamlit as st
-import pandas as pd
+"""
+Attendance Analytics System
+Uses only: numpy, pandas, python stdlib
+Run: python app.py
+"""
+
+import os
+import glob
 import numpy as np
-import matplotlib.pyplot as plt
-import io
-
-# ─────────────────────────────────────────────
-# PAGE CONFIG
-# ─────────────────────────────────────────────
-st.set_page_config(
-    page_title="PragyanAI – Program Intelligence Engine",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# ─────────────────────────────────────────────
-# MATPLOTLIB DARK THEME
-# ─────────────────────────────────────────────
-plt.rcParams.update({
-    "figure.facecolor":  "#0f0f1a",
-    "axes.facecolor":    "#1a1a2e",
-    "axes.edgecolor":    "#2a2a4a",
-    "axes.labelcolor":   "#8899bb",
-    "axes.titlecolor":   "#00d4ff",
-    "axes.titlesize":    11,
-    "axes.labelsize":    9,
-    "xtick.color":       "#8899bb",
-    "ytick.color":       "#8899bb",
-    "xtick.labelsize":   8,
-    "ytick.labelsize":   8,
-    "grid.color":        "#1e2a3a",
-    "grid.linestyle":    "--",
-    "grid.alpha":        0.6,
-    "text.color":        "#cdd9f0",
-    "legend.facecolor":  "#1a1a2e",
-    "legend.edgecolor":  "#2a2a4a",
-    "legend.fontsize":   8,
-    "font.family":       "monospace",
-})
-
-COLORS = ["#00d4ff", "#00e676", "#ffa726", "#bb86fc",
-          "#ff5252", "#ffeb3b", "#26c6da", "#66bb6a"]
-
-# ─────────────────────────────────────────────
-# CSS
-# ─────────────────────────────────────────────
-st.markdown("""
-<style>
-.main-header {
-    background: linear-gradient(135deg,#0f0f1a,#1a1a2e,#16213e);
-    padding:1.6rem 2rem; border-radius:14px; margin-bottom:1.2rem;
-    border:1px solid #2a2a4a;
-}
-.main-header h1 { color:#00d4ff; font-size:1.8rem; margin:0; font-family:monospace; }
-.main-header p  { color:#8899bb; margin:.4rem 0 0; font-size:.9rem; }
-.kpi-card {
-    background:linear-gradient(145deg,#1a1a2e,#16213e);
-    border:1px solid #2a2a4a; border-radius:10px;
-    padding:1rem 1.2rem; text-align:center;
-}
-.kpi-value { font-family:monospace; font-size:1.7rem; color:#00d4ff; font-weight:700; }
-.kpi-label { color:#8899bb; font-size:.75rem; text-transform:uppercase;
-             letter-spacing:1px; margin-top:3px; }
-.kpi-delta { font-size:.72rem; margin-top:2px; }
-.kpi-delta.good { color:#00e676; }
-.kpi-delta.bad  { color:#ff5252; }
-.section-title {
-    font-family:monospace; color:#00d4ff; font-size:1rem;
-    border-left:3px solid #00d4ff; padding-left:10px; margin:1.2rem 0 .8rem;
-}
-.insight-box {
-    background:linear-gradient(135deg,#0d2137,#0a1628);
-    border:1px solid #1e4a6e; border-left:4px solid #00d4ff;
-    border-radius:8px; padding:.9rem 1rem; margin:.4rem 0;
-    color:#cdd9f0; font-size:.88rem;
-}
-.warn-box {
-    background:linear-gradient(135deg,#1f1207,#2a1a0a);
-    border:1px solid #5a3a10; border-left:4px solid #ffa726;
-    border-radius:8px; padding:.9rem 1rem; margin:.4rem 0;
-    color:#f0d9aa; font-size:.88rem;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-# ─────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────
-def show(fig):
-    """Render matplotlib figure into Streamlit."""
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=130, bbox_inches="tight",
-                facecolor=fig.get_facecolor())
-    buf.seek(0)
-    st.image(buf, use_container_width=True)
-    plt.close(fig)
-
-
-def hbar(ax, categories, values, fmt=".1f"):
-    cats = list(categories); vals = list(values)
-    clrs = COLORS[:len(cats)]
-    bars = ax.barh(cats, vals, color=clrs, edgecolor="#0f0f1a", linewidth=0.5)
-    mx = max(vals) if vals else 1
-    for b in bars:
-        w = b.get_width()
-        ax.text(w + mx*0.01, b.get_y()+b.get_height()/2,
-                f"{w:{fmt}}", va="center", fontsize=7, color="#cdd9f0")
-    ax.grid(axis="x"); ax.set_axisbelow(True)
-
-
-def vbar(ax, categories, values, colors=None, fmt=".1f"):
-    cats = list(categories); vals = list(values)
-    clrs = (COLORS[:len(cats)]) if colors is None else colors
-    bars = ax.bar(cats, vals, color=clrs, edgecolor="#0f0f1a", linewidth=0.5)
-    mx = max(vals) if vals else 1
-    for b in bars:
-        h = b.get_height()
-        ax.text(b.get_x()+b.get_width()/2, h + mx*0.01,
-                f"{h:{fmt}}", ha="center", fontsize=7, color="#cdd9f0")
-    ax.grid(axis="y"); ax.set_axisbelow(True)
-
-
-def heatmap(ax, data, title, cmap="Blues"):
-    im = ax.imshow(data.values, aspect="auto", cmap=cmap)
-    ax.set_xticks(range(len(data.columns))); ax.set_xticklabels(data.columns, fontsize=8)
-    ax.set_yticks(range(len(data.index)));   ax.set_yticklabels(data.index, fontsize=8)
-    for i in range(data.shape[0]):
-        for j in range(data.shape[1]):
-            ax.text(j, i, f"{data.values[i,j]:.1f}", ha="center", va="center",
-                    fontsize=8, color="white")
-    plt.colorbar(im, ax=ax)
-    ax.set_title(title)
-
-
-# ─────────────────────────────────────────────
-# DATA GENERATION  (200K records)
-# ─────────────────────────────────────────────
-# ─────────────────────────────────────────────
-# SIDEBAR
-# ─────────────────────────────────────────────
-def load_user(f):
-    name = f.name.lower()
-
-    if name.endswith(".csv"):
-        return pd.read_csv(f)
-
-    if name.endswith((".xlsx", ".xls")):
-        return pd.read_excel(f)
-
-    st.error("Unsupported file. Upload CSV or Excel.")
-    return pd.DataFrame()
-
-
-# ─────────────────────────────────────────────
-# HEADER
-# ─────────────────────────────────────────────
-st.markdown("""
-<div class="main-header">
-  <h1>🧠 PragyanAI — Program Intelligence Engine</h1>
-  <p>Skill program analysis · ROI benchmarking · Placement intelligence · 200K record dataset</p>
-</div>""", unsafe_allow_html=True)
-
-
-# ─────────────────────────────────────────────
-# SIDEBAR
-# ─────────────────────────────────────────────
-with st.sidebar:
-
-    st.markdown("## 📂 Upload Dataset")
-
-    up = st.file_uploader(
-        "Upload CSV / Excel File",
-        type=["csv", "xlsx", "xls"]
-    )
-
-    if up:
-        df_raw = load_user(up)
-
-        if df_raw.empty:
-            st.error("Uploaded file is empty.")
-            st.stop()
-
-        st.success(f"{len(df_raw):,} records loaded ✓")
-
-    else:
-        st.warning("Please upload a dataset to continue.")
-        st.stop()
-
-    st.markdown("---")
-    st.markdown("## 🔧 Filters")
-
-    # Program Type Filter
-    if "Program_Type" in df_raw.columns:
-        pt_opts = sorted(df_raw["Program_Type"].dropna().unique())
-        pt_sel = st.multiselect(
-            "Program Type",
-            pt_opts,
-            default=pt_opts
-        )
-    else:
-        pt_sel = []
-
-    # Mode Filter
-    if "Mode" in df_raw.columns:
-        md_opts = sorted(df_raw["Mode"].dropna().unique())
-        md_sel = st.multiselect(
-            "Mode",
-            md_opts,
-            default=md_opts
-        )
-    else:
-        md_sel = []
-
-    # Duration Filter
-    if "Duration_Months" in df_raw.columns:
-        min_dur = int(df_raw["Duration_Months"].min())
-        max_dur = int(df_raw["Duration_Months"].max())
-
-        dur_r = st.slider(
-            "Duration (months)",
-            min_dur,
-            max_dur,
-            (min_dur, max_dur)
-        )
-    else:
-        dur_r = (0, 100)
-
-    # Cost Filter
-    if "Cost" in df_raw.columns:
-        min_cost = int(df_raw["Cost"].min() / 1000)
-        max_cost = int(df_raw["Cost"].max() / 1000)
-
-        cost_r = st.slider(
-            "Cost (₹ thousands)",
-            min_cost,
-            max_cost,
-            (min_cost, max_cost)
-        )
-    else:
-        cost_r = (0, 1000)
-
-    st.markdown("---")
-    st.caption("PragyanAI v2.0")
-
-
-# ─────────────────────────────────────────────
-# FILTERED DATA
-# ─────────────────────────────────────────────
-df = df_raw.copy()
-
-if "Program_Type" in df.columns and len(pt_sel) > 0:
-    df = df[df["Program_Type"].isin(pt_sel)]
-
-if "Mode" in df.columns and len(md_sel) > 0:
-    df = df[df["Mode"].isin(md_sel)]
-
-if "Duration_Months" in df.columns:
-    df = df[df["Duration_Months"].between(*dur_r)]
-
-if "Cost" in df.columns:
-    df = df[df["Cost"].between(cost_r[0] * 1000, cost_r[1] * 1000)]
-
-if df.empty:
-    st.warning("No records match filters.")
-    st.stop()
-
-# ─────────────────────────────────────────────
-# KPI STRIP
-# ─────────────────────────────────────────────
-pr    = df["Placement_Status"].mean() * 100
-aroi  = df.loc[df["Placement_Status"], "ROI"].mean()
-asi   = df["Skill_Improvement"].mean()
-asal  = df.loc[df["Placement_Status"], "Salary_LPA"].mean()
-acost = df["Cost"].mean()
-total = len(df)
-
-c1, c2, c3, c4, c5, c6 = st.columns(6)
-for col, val, lbl, dlt, cls in [
-    (c1, f"{total:,}",         "Records",         "",            ""),
-    (c2, f"{pr:.1f}%",         "Placement Rate",  "Target >65%", "good" if pr > 65 else "bad"),
-    (c3, f"₹{asal:.1f} LPA",  "Avg Salary",      "Placed only", "good"),
-    (c4, f"{aroi:.2f}×",       "Avg ROI",         "Salary/Cost", "good" if aroi > 1.5 else "bad"),
-    (c5, f"{asi:.2f}/3",       "Avg Skill Gain",  "0–3 scale",   "good" if asi > 1.5 else "bad"),
-    (c6, f"₹{acost/1000:.0f}K","Avg Cost",        "",            ""),
-]:
-    col.markdown(f"""<div class="kpi-card">
-      <div class="kpi-value">{val}</div>
-      <div class="kpi-label">{lbl}</div>
-      <div class="kpi-delta {cls}">{dlt}</div>
-    </div>""", unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-
-# ─────────────────────────────────────────────
-# TABS
-# ─────────────────────────────────────────────
-tabs = st.tabs([
-    "📊 Overview",
-    "⏱ Duration & Projects",
-    "🛠 Tools & Subjects",
-    "💰 Cost & ROI",
-    "👨‍🏫 Faculty Impact",
-    "🎓 Placement & Skills",
-    "🗂 Segmentation",
-    "🔍 Program Finder",
-    "💡 Key Insights",
-])
-
-
-# ══════════════════════════════════════════════
-# TAB 0 — OVERVIEW
-# ══════════════════════════════════════════════
-with tabs[0]:
-    st.markdown('<div class="section-title">Program Distribution & Effectiveness</div>',
-                unsafe_allow_html=True)
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-
-    # Program type bar
-    vc = df["Program_Type"].value_counts()
-    vbar(axes[0], vc.index, vc.values, fmt=".0f")
-    axes[0].set_title("Programs by Type")
-    axes[0].set_xlabel("Type"); axes[0].set_ylabel("Count")
-    plt.setp(axes[0].get_xticklabels(), rotation=15)
-
-    # Mode pie
-    mc = df["Mode"].value_counts()
-    wedges, texts, autotexts = axes[1].pie(
-        mc.values, labels=mc.index, autopct="%1.1f%%",
-        colors=COLORS[:len(mc)], startangle=90,
-        wedgeprops=dict(edgecolor="#0f0f1a", linewidth=1.2))
-    for t in autotexts:
-        t.set_color("#0f0f1a"); t.set_fontsize(8)
-    axes[1].set_title("Mode Distribution")
-
-    plt.tight_layout()
-    show(fig)
-
-    # Effectiveness heatmap
-    st.markdown('<div class="section-title">Effectiveness Score — Type × Mode</div>',
-                unsafe_allow_html=True)
-    pivot = df.groupby(["Program_Type", "Mode"])["Effectiveness_Score"].mean().unstack(fill_value=0)
-    fig, ax = plt.subplots(figsize=(8, 3.5))
-    heatmap(ax, pivot, "Avg Effectiveness Score — Program Type × Mode", cmap="Blues")
-    plt.tight_layout(); show(fig)
-
-    # Placement by type
-    st.markdown('<div class="section-title">Placement Rate by Program Type</div>',
-                unsafe_allow_html=True)
-    pr_type = df.groupby("Program_Type")["Placement_Status"].mean().mul(100).sort_values()
-    fig, ax = plt.subplots(figsize=(8, 3))
-    hbar(ax, pr_type.index, pr_type.values, fmt=".1f")
-    ax.set_title("Placement Rate % by Program Type")
-    ax.set_xlabel("Placement Rate (%)")
-    plt.tight_layout(); show(fig)
-
-
-# ══════════════════════════════════════════════
-# TAB 1 — DURATION & PROJECTS
-# ══════════════════════════════════════════════
-with tabs[1]:
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown('<div class="section-title">Duration vs Skill Improvement</div>',
-                    unsafe_allow_html=True)
-        dur_sk = df.groupby("Duration_Bucket", observed=True)["Skill_Improvement"].mean()
-        fig, ax = plt.subplots(figsize=(5, 3.5))
-        vbar(ax, dur_sk.index, dur_sk.values, fmt=".2f")
-        ax.set_title("Avg Skill Improvement by Duration")
-        ax.set_xlabel("Duration"); ax.set_ylabel("Skill Improvement")
-        plt.tight_layout(); show(fig)
-        st.markdown("""<div class="insight-box">
-          🔥 <strong>Sweet spot = 6–12 months.</strong>
-          Beyond 12 months skill gain plateaus. Short programs (<3m) show lowest impact.
-        </div>""", unsafe_allow_html=True)
-
-    with col2:
-        st.markdown('<div class="section-title">Projects vs Placement Rate</div>',
-                    unsafe_allow_html=True)
-        df["Proj_Bucket"] = pd.cut(df["Projects_Count"], bins=[0, 2, 5, 11],
-                                   labels=["<2", "3–5", "6+"])
-        pp_proj = df.groupby("Proj_Bucket", observed=True)["Placement_Status"].mean().mul(100)
-        fig, ax = plt.subplots(figsize=(5, 3.5))
-        vbar(ax, pp_proj.index, pp_proj.values, fmt=".1f")
-        ax.set_title("Placement Rate by Projects Count")
-        ax.set_xlabel("Projects"); ax.set_ylabel("Placement Rate (%)")
-        plt.tight_layout(); show(fig)
-        st.markdown("""<div class="insight-box">
-          🔥 <strong>Projects = strongest learning signal.</strong>
-          6+ projects push placement to peak levels.
-        </div>""", unsafe_allow_html=True)
-
-    # Heatmap: Duration × Projects → Avg Salary
-    st.markdown('<div class="section-title">Duration × Projects → Avg Salary (Placed)</div>',
-                unsafe_allow_html=True)
-    tmp = df[df["Placement_Status"]].copy()
-    tmp["Proj_B2"] = pd.cut(tmp["Projects_Count"], bins=[0, 2, 5, 11],
-                            labels=["<2", "3–5", "6+"])
-    heat = tmp.groupby(["Duration_Bucket", "Proj_B2"],
-                       observed=True)["Salary_LPA"].mean().unstack(fill_value=0)
-    fig, ax = plt.subplots(figsize=(7, 3))
-    heatmap(ax, heat, "Avg Salary LPA — Duration × Projects (Placed Students)", cmap="YlOrBr")
-    plt.tight_layout(); show(fig)
-
-
-# ══════════════════════════════════════════════
-# TAB 2 — TOOLS & SUBJECTS
-# ══════════════════════════════════════════════
-with tabs[2]:
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown('<div class="section-title">Tools Count vs ROI</div>',
-                    unsafe_allow_html=True)
-        t_bins = pd.cut(df["Tools_Count"], bins=[0, 3, 8, 14], labels=["<3", "3–8", "8+"])
-        t_roi  = df.groupby(t_bins, observed=True)["ROI"].mean()
-        fig, ax = plt.subplots(figsize=(5, 3.5))
-        vbar(ax, t_roi.index, t_roi.values,
-             colors=[COLORS[2]]*len(t_roi), fmt=".2f")
-        ax.set_title("Avg ROI by Tools Count")
-        ax.set_xlabel("Tools"); ax.set_ylabel("ROI")
-        plt.tight_layout(); show(fig)
-        st.markdown("""<div class="insight-box">
-          ⚙️ <strong>8+ tools dramatically improves ROI.</strong>
-          Tool exposure signals job-ready graduates.
-        </div>""", unsafe_allow_html=True)
-
-    with col2:
-        st.markdown('<div class="section-title">Subjects Count vs Skill Improvement</div>',
-                    unsafe_allow_html=True)
-        s_bins  = pd.cut(df["Subjects_Count"], bins=[0, 5, 10, 18], labels=["<5", "5–10", ">10"])
-        s_skill = df.groupby(s_bins, observed=True)["Skill_Improvement"].mean()
-        fig, ax = plt.subplots(figsize=(5, 3.5))
-        vbar(ax, s_skill.index, s_skill.values,
-             colors=[COLORS[3]]*len(s_skill), fmt=".2f")
-        ax.set_title("Skill Improvement by Subjects Count")
-        ax.set_xlabel("Subjects"); ax.set_ylabel("Skill Improvement")
-        plt.tight_layout(); show(fig)
-        st.markdown("""<div class="warn-box">
-          ⚠️ <strong>More subjects ≠ better learning.</strong>
-          >10 subjects causes overload. 5–10 is the sweet spot.
-        </div>""", unsafe_allow_html=True)
-
-    st.markdown('<div class="section-title">Learning Density by Program Type</div>',
-                unsafe_allow_html=True)
-    ld = df.groupby("Program_Type")["Learning_Density"].mean().sort_values()
-    fig, ax = plt.subplots(figsize=(8, 3))
-    hbar(ax, ld.index, ld.values, fmt=".3f")
-    ax.set_title("Learning Density = (Projects + Tools) / Duration")
-    ax.set_xlabel("Learning Density")
-    plt.tight_layout(); show(fig)
-
-
-# ══════════════════════════════════════════════
-# TAB 3 — COST & ROI
-# ══════════════════════════════════════════════
-with tabs[3]:
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown('<div class="section-title">Cost Bracket vs Avg ROI</div>',
-                    unsafe_allow_html=True)
-        c_roi = df.groupby("Cost_Bucket", observed=True)["ROI"].mean()
-        fig, ax = plt.subplots(figsize=(5, 3.5))
-        vbar(ax, c_roi.index, c_roi.values, fmt=".2f")
-        ax.set_title("Avg ROI by Cost Bracket")
-        ax.set_xlabel("Cost Bracket"); ax.set_ylabel("ROI")
-        plt.tight_layout(); show(fig)
-        st.markdown("""<div class="insight-box">
-          💡 <strong>₹50K–₹2L delivers best ROI.</strong>
-          High-cost (>₹2L) programs often underdeliver.
-        </div>""", unsafe_allow_html=True)
-
-    with col2:
-        st.markdown('<div class="section-title">Cost-per-Project vs Placement Rate</div>',
-                    unsafe_allow_html=True)
-        df["Cost_per_Proj"] = df["Cost"] / df["Projects_Count"].clip(1)
-        cpp = pd.qcut(df["Cost_per_Proj"], q=4,
-                      labels=["Q1\n(Best)", "Q2", "Q3", "Q4\n(Worst)"])
-        cpp_p = df.groupby(cpp, observed=True)["Placement_Status"].mean().mul(100)
-        fig, ax = plt.subplots(figsize=(5, 3.5))
-        vbar(ax, cpp_p.index, cpp_p.values,
-             colors=[COLORS[4]]*len(cpp_p), fmt=".1f")
-        ax.set_title("Placement Rate by Cost-per-Project Quartile")
-        ax.set_xlabel("Cost/Project Quartile"); ax.set_ylabel("Placement Rate (%)")
-        plt.tight_layout(); show(fig)
-        st.markdown("""<div class="warn-box">
-          🚨 <strong>High cost + low projects = worst programs.</strong>
-          Always check cost-per-project before enrolling.
-        </div>""", unsafe_allow_html=True)
-
-    # Scatter: Cost vs Salary
-    st.markdown('<div class="section-title">Cost vs Salary Scatter (Placed Students)</div>',
-                unsafe_allow_html=True)
-    samp = df[df["Placement_Status"]].sample(
-        min(3000, int(df["Placement_Status"].sum())), random_state=1)
-    fig, ax = plt.subplots(figsize=(10, 4))
-    for i, pt in enumerate(samp["Program_Type"].unique()):
-        s = samp[samp["Program_Type"] == pt]
-        ax.scatter(s["Cost"], s["Salary_LPA"], alpha=0.3, s=12,
-                   color=COLORS[i % len(COLORS)], label=pt)
-    ax.set_xlabel("Program Cost (₹)"); ax.set_ylabel("Salary LPA")
-    ax.set_title("Cost vs Salary — Placed Students (sampled)")
-    ax.legend(fontsize=7); ax.grid(True)
-    plt.tight_layout(); show(fig)
-
-
-# ══════════════════════════════════════════════
-# TAB 4 — FACULTY IMPACT
-# ══════════════════════════════════════════════
-with tabs[4]:
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown('<div class="section-title">Faculty Experience vs Placement Rate</div>',
-                    unsafe_allow_html=True)
-        fb = pd.cut(df["Faculty_Experience"], bins=[0, 4, 8, 24],
-                    labels=["<4 yrs", "4–8 yrs", "8+ yrs"])
-        fp = df.groupby(fb, observed=True)["Placement_Status"].mean().mul(100)
-        fig, ax = plt.subplots(figsize=(5, 3.5))
-        vbar(ax, fp.index, fp.values, fmt=".1f")
-        ax.set_title("Placement Rate by Faculty Experience")
-        ax.set_xlabel("Experience"); ax.set_ylabel("Placement Rate (%)")
-        plt.tight_layout(); show(fig)
-
-    with col2:
-        st.markdown('<div class="section-title">Industry Experience vs Skill Improvement</div>',
-                    unsafe_allow_html=True)
-        ie_sk = df.groupby("Industry_Experience")["Skill_Improvement"].mean()
-        fig, ax = plt.subplots(figsize=(5, 3.5))
-        vbar(ax, ie_sk.index, ie_sk.values,
-             colors=[COLORS[1]]*len(ie_sk), fmt=".2f")
-        ax.set_title("Skill Improvement: Industry vs No Industry")
-        ax.set_xlabel("Industry Experience"); ax.set_ylabel("Skill Improvement")
-        plt.tight_layout(); show(fig)
-
-    col3, col4 = st.columns(2)
-
-    with col3:
-        st.markdown('<div class="section-title">Degree × Industry → Avg Salary</div>',
-                    unsafe_allow_html=True)
-        di = df[df["Placement_Status"]].groupby(
-            ["Faculty_Degree", "Industry_Experience"])["Salary_LPA"].mean().unstack(fill_value=0)
-        x = np.arange(len(di.index)); w = 0.35
-        fig, ax = plt.subplots(figsize=(5, 3.5))
-        ax.bar(x - w/2, di.get("Yes", pd.Series([0]*len(di))), w,
-               color=COLORS[0], label="Industry: Yes", edgecolor="#0f0f1a")
-        ax.bar(x + w/2, di.get("No",  pd.Series([0]*len(di))), w,
-               color=COLORS[4], label="Industry: No",  edgecolor="#0f0f1a")
-        ax.set_xticks(x); ax.set_xticklabels(di.index)
-        ax.set_title("Avg Salary by Degree & Industry Exp")
-        ax.set_ylabel("Salary LPA"); ax.legend(); ax.grid(axis="y")
-        plt.tight_layout(); show(fig)
-        st.markdown("""<div class="insight-box">
-          🔥 <strong>Real-world teaching > theoretical.</strong>
-          PhD + no industry underperforms BTech + industry.
-        </div>""", unsafe_allow_html=True)
-
-    with col4:
-        st.markdown('<div class="section-title">Company Background vs ROI</div>',
-                    unsafe_allow_html=True)
-        cr = df.groupby("Company_Background")["ROI"].mean()
-        fig, ax = plt.subplots(figsize=(5, 3.5))
-        vbar(ax, cr.index, cr.values,
-             colors=[COLORS[2]]*len(cr), fmt=".2f")
-        ax.set_title("Avg ROI by Faculty Company Background")
-        ax.set_xlabel("Background"); ax.set_ylabel("ROI")
-        plt.tight_layout(); show(fig)
-        st.markdown("""<div class="insight-box">
-          🏢 Faculty from <strong>top-tier companies</strong> deliver
-          significantly higher ROI outcomes.
-        </div>""", unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════
-# TAB 5 — PLACEMENT & SKILLS
-# ══════════════════════════════════════════════
-with tabs[5]:
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown('<div class="section-title">Skill Improvement → Placement Rate</div>',
-                    unsafe_allow_html=True)
-        si_p = df.groupby("Skill_Improvement")["Placement_Status"].mean().mul(100)
-        fig, ax = plt.subplots(figsize=(5, 3.5))
-        grad = [COLORS[4], COLORS[2], COLORS[1], COLORS[0]]
-        ax.bar(si_p.index.astype(str), si_p.values,
-               color=grad[:len(si_p)], edgecolor="#0f0f1a")
-        for i, (x, v) in enumerate(zip(si_p.index, si_p.values)):
-            ax.text(i, v + 0.5, f"{v:.1f}%", ha="center", fontsize=8, color="#cdd9f0")
-        ax.set_title("Placement Rate by Skill Improvement Level")
-        ax.set_xlabel("Skill Improvement (0–3)"); ax.set_ylabel("Placement Rate (%)")
-        ax.grid(axis="y")
-        plt.tight_layout(); show(fig)
-
-    with col2:
-        st.markdown('<div class="section-title">Mode Comparison</div>',
-                    unsafe_allow_html=True)
-        mc = df.groupby("Mode")[["Placement_Status", "Skill_Improvement", "ROI"]].mean()
-        mc["Placement_Status"] *= 100
-        modes_list = mc.index.tolist()
-        metrics    = ["Placement_Status", "Skill_Improvement", "ROI"]
-        labels_m   = ["Placement %", "Skill Gain", "ROI"]
-        x = np.arange(len(modes_list)); w = 0.25
-        fig, ax = plt.subplots(figsize=(6, 3.5))
-        for i, (m, lbl) in enumerate(zip(metrics, labels_m)):
-            vals = [mc.loc[mo, m] for mo in modes_list]
-            ax.bar(x + i*w, vals, w, label=lbl,
-                   color=COLORS[i], edgecolor="#0f0f1a")
-        ax.set_xticks(x + w); ax.set_xticklabels(modes_list)
-        ax.set_title("Mode Comparison: Placement / Skill / ROI")
-        ax.legend(); ax.grid(axis="y")
-        plt.tight_layout(); show(fig)
-        st.markdown("""<div class="insight-box">
-          🔥 <strong>Hybrid = best learning model</strong> across all three metrics.
-        </div>""", unsafe_allow_html=True)
-
-    # Box plot: Salary by Program Type
-    st.markdown('<div class="section-title">Salary Distribution by Program Type (Placed)</div>',
-                unsafe_allow_html=True)
-    placed_df = df[df["Placement_Status"] & (df["Salary_LPA"] > 0)]
-    types_ord  = sorted(placed_df["Program_Type"].unique())
-    data_box   = [placed_df[placed_df["Program_Type"] == t]["Salary_LPA"].values
-                  for t in types_ord]
-    fig, ax = plt.subplots(figsize=(10, 4))
-    bp = ax.boxplot(data_box, patch_artist=True, notch=False,
-                    medianprops=dict(color="#ffeb3b", linewidth=2),
-                    whiskerprops=dict(color="#8899bb"),
-                    capprops=dict(color="#8899bb"),
-                    flierprops=dict(marker=".", color="#8899bb", markersize=2, alpha=0.3))
-    for patch, clr in zip(bp["boxes"], COLORS):
-        patch.set_facecolor(clr); patch.set_alpha(0.7)
-    ax.set_xticklabels(types_ord, rotation=15)
-    ax.set_title("Salary LPA Distribution by Program Type (Placed Students)")
-    ax.set_ylabel("Salary LPA"); ax.grid(axis="y")
-    plt.tight_layout(); show(fig)
-
-    # CGPA × Tier → Salary
-    st.markdown('<div class="section-title">CGPA Band × College Tier → Avg Salary</div>',
-                unsafe_allow_html=True)
-    df["CGPA_Band"] = pd.cut(df["CGPA"], bins=[4, 6, 7, 8, 10],
-                             labels=["<6", "6–7", "7–8", "8+"])
-    tc = df[df["Placement_Status"]].groupby(
-        ["CGPA_Band", "College_Tier"], observed=True)["Salary_LPA"].mean().unstack(fill_value=0)
-    x = np.arange(len(tc.index)); w = 0.28
-    fig, ax = plt.subplots(figsize=(9, 4))
-    for i, (col_name, clr) in enumerate(zip(tc.columns, COLORS)):
-        ax.bar(x + i*w, tc[col_name], w,
-               label=col_name, color=clr, edgecolor="#0f0f1a")
-    ax.set_xticks(x + w); ax.set_xticklabels(tc.index)
-    ax.set_title("Avg Salary by CGPA Band & College Tier")
-    ax.set_ylabel("Salary LPA"); ax.legend(); ax.grid(axis="y")
-    plt.tight_layout(); show(fig)
-
-
-# ══════════════════════════════════════════════
-# TAB 6 — SEGMENTATION
-# ══════════════════════════════════════════════
-with tabs[6]:
-    st.markdown('<div class="section-title">Program Segmentation</div>',
-                unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-
-    with col1:
-        seg_vc = df["Segment"].value_counts()
-        fig, ax = plt.subplots(figsize=(5, 4))
-        wedges, texts, autotexts = ax.pie(
-            seg_vc.values, labels=seg_vc.index, autopct="%1.1f%%",
-            colors=COLORS[:len(seg_vc)], startangle=90,
-            wedgeprops=dict(edgecolor="#0f0f1a", linewidth=1.2))
-        for t in autotexts:
-            t.set_color("#0f0f1a"); t.set_fontsize(8)
-        ax.set_title("Segment Distribution")
-        plt.tight_layout(); show(fig)
-
-    with col2:
-        seg_m = df.groupby("Segment").agg(
-            Placement=("Placement_Status", "mean"),
-            ROI=("ROI", "mean"),
-            Skill=("Skill_Improvement", "mean"),
-        ).reset_index()
-        seg_m["Placement"] *= 100
-        seg_colors = {
-            "High Value": "#00e676", "Overpriced": "#ff5252",
-            "Low Depth": "#ffd740",  "Heavy+Inefficient": "#bb86fc",
-            "Standard": "#00d4ff"
-        }
-        for _, row in seg_m.iterrows():
-            clr = seg_colors.get(row["Segment"], "#8899bb")
-            st.markdown(f"""
-            <div style="background:#1a1a2e;border:1px solid #2a2a4a;border-left:4px solid {clr};
-                 border-radius:8px;padding:.7rem 1rem;margin-bottom:.5rem">
-              <strong style="color:{clr}">{row['Segment']}</strong>
-              <span style="color:#8899bb;font-size:.8rem;margin-left:8px">
-                Placed: {row['Placement']:.1f}% &nbsp;|&nbsp;
-                ROI: {row['ROI']:.2f}× &nbsp;|&nbsp;
-                Skill: {row['Skill']:.2f}/3
-              </span>
-            </div>""", unsafe_allow_html=True)
-
-    # Grouped bar: segment metrics
-    st.markdown('<div class="section-title">Segment Metrics Comparison</div>',
-                unsafe_allow_html=True)
-    segs = seg_m["Segment"].tolist()
-    x    = np.arange(len(segs)); w = 0.25
-    fig, ax = plt.subplots(figsize=(10, 4))
-    for i, (col_name, lbl, clr) in enumerate([
-        ("Placement", "Placement %", COLORS[0]),
-        ("ROI",       "ROI",         COLORS[1]),
-        ("Skill",     "Skill Gain",  COLORS[2]),
-    ]):
-        ax.bar(x + i*w, seg_m[col_name], w,
-               label=lbl, color=clr, edgecolor="#0f0f1a")
-    ax.set_xticks(x + w); ax.set_xticklabels(segs, rotation=10)
-    ax.set_title("Segment Comparison: Placement / ROI / Skill Gain")
-    ax.legend(); ax.grid(axis="y")
-    plt.tight_layout(); show(fig)
-
-    st.markdown('<div class="section-title">Detailed Segment Table</div>',
-                unsafe_allow_html=True)
-    seg_detail = df.groupby("Segment").agg(
-        Count=("Student_ID", "count"),
-        Avg_Duration=("Duration_Months", "mean"),
-        Avg_Projects=("Projects_Count", "mean"),
-        Avg_Tools=("Tools_Count", "mean"),
-        Avg_Cost=("Cost", "mean"),
-        Placement_Rate=("Placement_Status", "mean"),
-        Avg_ROI=("ROI", "mean"),
-    ).reset_index()
-    seg_detail["Placement_Rate"] = (seg_detail["Placement_Rate"] * 100).round(1)
-    seg_detail = seg_detail.round(2)
-    st.dataframe(seg_detail.set_index("Segment"), use_container_width=True)
-
-
-# ══════════════════════════════════════════════
-# TAB 7 — PROGRAM FINDER
-# ══════════════════════════════════════════════
-with tabs[7]:
-    st.markdown('<div class="section-title">🔍 Weighted Program Scorer</div>',
-                unsafe_allow_html=True)
-    st.markdown("Adjust weights → programs ranked by composite score.")
-
-    f1, f2, f3 = st.columns(3)
-    with f1:
-        w_roi   = st.slider("Weight: ROI",                0, 10, 5)
-        w_place = st.slider("Weight: Placement Rate",     0, 10, 5)
-    with f2:
-        w_skill = st.slider("Weight: Skill Improvement",  0, 10, 4)
-        w_proj  = st.slider("Weight: Projects Count",     0, 10, 4)
-    with f3:
-        w_tools = st.slider("Weight: Tools Count",        0, 10, 3)
-        w_fac   = st.slider("Weight: Faculty Experience", 0, 10, 3)
-
-    agg = df.groupby("Program_Name").agg(
-        Program_Type    =("Program_Type",    "first"),
-        Mode            =("Mode",            "first"),
-        Duration        =("Duration_Months", "mean"),
-        Projects        =("Projects_Count",  "mean"),
-        Tools           =("Tools_Count",     "mean"),
-        Cost            =("Cost",            "mean"),
-        Placement_Rate  =("Placement_Status","mean"),
-        Avg_ROI         =("ROI",             "mean"),
-        Skill           =("Skill_Improvement","mean"),
-        Fac_Exp         =("Faculty_Experience","mean"),
-        Avg_Salary      =("Salary_LPA",      "mean"),
-        Count           =("Student_ID",      "count"),
-    ).reset_index()
-    agg = agg[agg["Count"] >= 5]
-
-    def norm(s):
-        return (s - s.min()) / (s.max() - s.min() + 1e-9)
-
-    agg["Score"] = (
-        w_roi   * norm(agg["Avg_ROI"]) +
-        w_place * norm(agg["Placement_Rate"]) +
-        w_skill * norm(agg["Skill"]) +
-        w_proj  * norm(agg["Projects"]) +
-        w_tools * norm(agg["Tools"]) +
-        w_fac   * norm(agg["Fac_Exp"])
-    ).round(3)
-
-    top_n = st.slider("Show top N programs", 5, 40, 15)
-    top   = agg.nlargest(top_n, "Score").sort_values("Score")
-
-    fig, ax = plt.subplots(figsize=(10, max(4, top_n * 0.35)))
-    colors_score = plt.cm.Blues(np.linspace(0.35, 0.95, len(top)))
-    bars = ax.barh(top["Program_Name"], top["Score"],
-                   color=colors_score, edgecolor="#0f0f1a")
-    mx = top["Score"].max()
-    for b in bars:
-        w_b = b.get_width()
-        ax.text(w_b + mx*0.01, b.get_y() + b.get_height()/2,
-                f"{w_b:.3f}", va="center", fontsize=7, color="#cdd9f0")
-    ax.set_title(f"Top {top_n} Programs — Composite Score")
-    ax.set_xlabel("Score"); ax.grid(axis="x")
-    plt.tight_layout(); show(fig)
-
-    st.markdown('<div class="section-title">Top Programs — Details</div>',
-                unsafe_allow_html=True)
-    display = top[["Program_Name", "Program_Type", "Mode", "Duration", "Projects",
-                   "Tools", "Placement_Rate", "Avg_ROI", "Avg_Salary", "Cost", "Score"]].copy()
-    display["Placement_Rate"] = (display["Placement_Rate"] * 100).round(1)
-    display = display.rename(columns={
-        "Placement_Rate": "Placed%", "Avg_ROI": "ROI",
-        "Avg_Salary": "Salary LPA", "Duration": "Dur(m)"
+import pandas as pd
+from datetime import datetime, timedelta
+import random
+
+
+# ──────────────────────────────────────────────
+# 1.  SAMPLE DATA GENERATOR
+# ──────────────────────────────────────────────
+
+def generate_sample_data(output_dir: str = "attendance_data") -> str:
+    """
+    Creates synthetic student master CSV + daily attendance XLSX files
+    so the pipeline works out-of-the-box without any real uploads.
+    Returns the path to the data directory.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(os.path.join(output_dir, "daily"), exist_ok=True)
+
+    random.seed(42)
+    np.random.seed(42)
+
+    # --- Student master ---
+    students = pd.DataFrame({
+        "Student_ID": [f"S{i:03d}" for i in range(1, 21)],
+        "Name": [
+            "Ravi",    "Sneha",  "Rahul",  "Priya",   "Amit",
+            "Kavita",  "Suresh", "Meena",  "Arjun",   "Divya",
+            "Nikhil",  "Pooja",  "Sanjay", "Aarti",   "Vikram",
+            "Nisha",   "Rohan",  "Sunita", "Karthik",  "Lata",
+        ],
+        "College": [
+            "ABC College", "XYZ College", "ABC College", "LMN College", "XYZ College",
+            "LMN College", "ABC College", "XYZ College", "LMN College", "ABC College",
+            "XYZ College", "ABC College", "LMN College", "XYZ College", "ABC College",
+            "LMN College", "XYZ College", "ABC College", "LMN College", "XYZ College",
+        ],
+        "Department": [
+            "CSE", "ECE", "ME",  "CSE", "ECE",
+            "ME",  "CSE", "ECE", "ME",  "CSE",
+            "ECE", "ME",  "CSE", "ECE", "ME",
+            "CSE", "ECE", "ME",  "CSE", "ECE",
+        ],
+        "Year": np.random.choice([1, 2, 3, 4], size=20),
     })
-    st.dataframe(
-        display.set_index("Program_Name").sort_values("Score", ascending=False),
-        use_container_width=True)
+    students_path = os.path.join(output_dir, "students.csv")
+    students.to_csv(students_path, index=False)
+    print(f"  [+] Generated {students_path}")
+
+    # --- Daily attendance (10 days, 3 subjects) ---
+    subjects = ["Machine Learning", "Deep Learning", "Python"]
+    start_date = datetime(2025, 2, 1)
+
+    # Assign each student a base attendance probability
+    base_prob = np.random.uniform(0.55, 0.98, size=len(students))
+
+    for day_offset in range(10):
+        date = start_date + timedelta(days=day_offset)
+        date_str = date.strftime("%Y-%m-%d")
+        subject = subjects[day_offset % len(subjects)]
+
+        # Deep Learning occasionally has very low attendance
+        if subject == "Deep Learning" and day_offset % 4 == 1:
+            probs = np.clip(base_prob * 0.5, 0.1, 0.6)
+        else:
+            probs = base_prob
+
+        statuses = [
+            "Present" if np.random.rand() < p else "Absent"
+            for p in probs
+        ]
+
+        day_df = pd.DataFrame({
+            "Date":       date_str,
+            "Student_ID": students["Student_ID"].values,
+            "Subject":    subject,
+            "Status":     statuses,
+        })
+
+        file_path = os.path.join(
+            output_dir, "daily", f"attendance_day{day_offset+1}.xlsx"
+        )
+        day_df.to_excel(file_path, index=False)
+
+    print(f"  [+] Generated 10 daily attendance files in {output_dir}/daily/")
+    return output_dir
 
 
-# ══════════════════════════════════════════════
-# TAB 8 — KEY INSIGHTS
-# ══════════════════════════════════════════════
-with tabs[8]:
-    best_dur  = df.groupby("Duration_Bucket",  observed=True)["Skill_Improvement"].mean().idxmax()
-    best_mode = df.groupby("Mode")["Placement_Status"].mean().idxmax()
-    best_type = df.groupby("Program_Type")["Placement_Status"].mean().idxmax()
+# ──────────────────────────────────────────────
+# 2.  DATA LOADING & INTEGRATION
+# ──────────────────────────────────────────────
 
-    st.markdown('<div class="section-title">📊 Data-Backed Key Insights</div>',
-                unsafe_allow_html=True)
+def load_and_merge(data_dir: str) -> pd.DataFrame:
+    """Load all attendance xlsx files, concatenate, merge with students."""
 
-    insights = [
-        ("🎯", "Duration Sweet Spot",
-         f"6–12 months yields peak skill gain. Your data: <b>{best_dur}</b> is top bucket."),
-        ("🛠", "Projects > Subjects",
-         "Projects + tools are the <b>strongest predictors</b> of placement — more than subject count."),
-        ("👨‍🏫", "Faculty Industry Exp is Critical",
-         "BTech + industry background consistently outperforms PhD + no industry."),
-        ("💻", f"Best Mode = {best_mode}",
-         f"<b>Hybrid mode</b> leads across placement, skill, and ROI. Your data confirms: <b>{best_mode}</b>."),
-        ("💰", "Mid-Range Cost = Best ROI",
-         "₹50K–₹2L programs deliver the <b>best return on investment</b>."),
-        ("🚀", f"Top Program Type = {best_type}",
-         f"GenAI & Data Science produce highest placement. Your data: <b>{best_type}</b>."),
-        ("📐", "Cost-per-Project = Hidden Quality Metric",
-         "High cost + few projects = <b>worst programs</b>. Always compute before enrolling."),
-        ("🏫", "Skills Close the College Tier Gap",
-         "Skill improvement matters more than tier. High-skill Tier 3 > low-skill Tier 1."),
-    ]
+    # Load student master
+    students_path = os.path.join(data_dir, "students.csv")
+    if not os.path.exists(students_path):
+        raise FileNotFoundError(f"students.csv not found in {data_dir}")
+    students = pd.read_csv(students_path)
 
-    cols = st.columns(2)
-    for i, (icon, title, body) in enumerate(insights):
-        with cols[i % 2]:
-            st.markdown(f"""<div class="insight-box" style="margin-bottom:.8rem">
-              <div style="color:#00d4ff;font-weight:700;margin-bottom:4px">{icon} {title}</div>
-              <span style="color:#cdd9f0;font-size:.86rem">{body}</span>
-            </div>""", unsafe_allow_html=True)
+    # Load all daily attendance files
+    pattern = os.path.join(data_dir, "daily", "*.xlsx")
+    files = glob.glob(pattern)
+    if not files:
+        raise FileNotFoundError(f"No attendance xlsx files found at {pattern}")
 
-    # Importance bar chart
-    st.markdown('<div class="section-title">Master Formula — What Makes a Great Program</div>',
-                unsafe_allow_html=True)
-    factors  = ["Projects\n(5+)", "Tools\n(8+)", "Faculty Exp\n(>8 yrs)",
-                "Duration\n(6–12m)", "Mode\n(Hybrid)", "Cost\n(50K–2L)"]
-    weights_v = [9.5, 8.5, 8.0, 7.5, 7.0, 6.5]
-    fig, ax = plt.subplots(figsize=(10, 4))
-    bars2 = ax.bar(factors, weights_v,
-                   color=COLORS[:len(factors)], edgecolor="#0f0f1a", linewidth=0.8)
-    for b in bars2:
-        h = b.get_height()
-        ax.text(b.get_x() + b.get_width()/2, h + 0.05, f"{h}",
-                ha="center", fontsize=9, color="#cdd9f0", fontweight="bold")
-    ax.set_ylim(0, 11); ax.set_ylabel("Importance Score")
-    ax.set_title("Key Program Quality Factors (Importance Score 0–10)")
-    ax.grid(axis="y")
-    plt.tight_layout(); show(fig)
+    df_list = []
+    for f in sorted(files):
+        data = pd.read_excel(f)
+        df_list.append(data)
+    attendance = pd.concat(df_list, ignore_index=True)
 
-    # Mindset cards
-    st.markdown('<div class="section-title">Strategic Mindset Shift</div>',
-                unsafe_allow_html=True)
-    ca, cb = st.columns(2)
-    with ca:
-        st.markdown("""<div class="warn-box">
-          <strong>❌ Old Mindset</strong><br><br>
-          "Will I get a placement?"<br>
-          Focus on brand name &amp; cost<br>
-          Ignore program structure<br>
-          Certificates over skills
-        </div>""", unsafe_allow_html=True)
-    with cb:
-        st.markdown("""<div class="insight-box">
-          <strong>✅ New Mindset — Evaluate This:</strong><br><br>
-          🛠 <b>Projects:</b> 5+ hands-on?<br>
-          ⚙️ <b>Tools:</b> 8+ industry tools?<br>
-          👨‍🏫 <b>Faculty:</b> Real industry experience?<br>
-          ⏱ <b>Duration:</b> 6–12 month sweet spot?<br>
-          💰 <b>ROI:</b> Mid-range cost, strong outcomes?
-        </div>""", unsafe_allow_html=True)
-
-    # Export
-    st.markdown('<div class="section-title">📥 Export Filtered Data</div>',
-                unsafe_allow_html=True)
-    sample_exp = df.sample(min(10000, len(df)), random_state=42)
-    st.download_button(
-        label="⬇️ Download Filtered Sample (up to 10K rows, CSV)",
-        data=sample_exp.to_csv(index=False).encode(),
-        file_name="pragyanai_filtered_data.csv",
-        mime="text/csv",
+    # Numeric flag
+    attendance["Present"] = attendance["Status"].apply(
+        lambda x: 1 if str(x).strip().lower() == "present" else 0
     )
+
+    # Merge
+    df = attendance.merge(students, on="Student_ID", how="left")
+    df["Date"] = pd.to_datetime(df["Date"])
+    return df
+
+
+# ──────────────────────────────────────────────
+# 3.  ANALYTICS FUNCTIONS
+# ──────────────────────────────────────────────
+
+def student_attendance(df: pd.DataFrame) -> pd.DataFrame:
+    """Student-wise attendance report."""
+    grp = df.groupby(["Student_ID", "Name"])
+    total   = grp["Present"].count().rename("Total_Classes")
+    present = grp["Present"].sum().rename("Present_Count")
+    report  = pd.concat([total, present], axis=1)
+    report["Absent_Count"]   = report["Total_Classes"] - report["Present_Count"]
+    report["Attendance_Pct"] = (report["Present_Count"] / report["Total_Classes"] * 100).round(2)
+    return report.reset_index().sort_values("Attendance_Pct")
+
+
+def low_attendance_students(df: pd.DataFrame, threshold: float = 75.0) -> pd.DataFrame:
+    """Students below attendance threshold."""
+    report = student_attendance(df)
+    return report[report["Attendance_Pct"] < threshold]
+
+
+def department_attendance(df: pd.DataFrame) -> pd.DataFrame:
+    return (
+        df.groupby("Department")["Present"]
+          .agg(["mean", "count"])
+          .rename(columns={"mean": "Avg_Attendance_Pct", "count": "Total_Records"})
+          .assign(Avg_Attendance_Pct=lambda x: (x["Avg_Attendance_Pct"] * 100).round(2))
+          .reset_index()
+          .sort_values("Avg_Attendance_Pct", ascending=False)
+    )
+
+
+def college_attendance(df: pd.DataFrame) -> pd.DataFrame:
+    return (
+        df.groupby("College")["Present"]
+          .agg(["mean", "count"])
+          .rename(columns={"mean": "Avg_Attendance_Pct", "count": "Total_Records"})
+          .assign(Avg_Attendance_Pct=lambda x: (x["Avg_Attendance_Pct"] * 100).round(2))
+          .reset_index()
+          .sort_values("Avg_Attendance_Pct", ascending=False)
+    )
+
+
+def subject_attendance(df: pd.DataFrame) -> pd.DataFrame:
+    return (
+        df.groupby("Subject")["Present"]
+          .agg(["mean", "count"])
+          .rename(columns={"mean": "Avg_Attendance_Pct", "count": "Total_Records"})
+          .assign(Avg_Attendance_Pct=lambda x: (x["Avg_Attendance_Pct"] * 100).round(2))
+          .reset_index()
+          .sort_values("Avg_Attendance_Pct", ascending=False)
+    )
+
+
+def daily_trend(df: pd.DataFrame) -> pd.DataFrame:
+    return (
+        df.groupby("Date")["Present"]
+          .mean()
+          .reset_index()
+          .rename(columns={"Present": "Avg_Attendance_Pct"})
+          .assign(Avg_Attendance_Pct=lambda x: (x["Avg_Attendance_Pct"] * 100).round(2))
+          .sort_values("Date")
+    )
+
+
+def missing_class_detection(df: pd.DataFrame, threshold: float = 60.0) -> pd.DataFrame:
+    """Classes (Date × Subject) where attendance dropped below threshold."""
+    class_att = (
+        df.groupby(["Date", "Subject"])["Present"]
+          .mean()
+          .reset_index()
+          .rename(columns={"Present": "Attendance_Pct"})
+          .assign(Attendance_Pct=lambda x: (x["Attendance_Pct"] * 100).round(2))
+    )
+    return class_att[class_att["Attendance_Pct"] < threshold].sort_values("Attendance_Pct")
+
+
+# ──────────────────────────────────────────────
+# 4.  ASCII CHART HELPERS
+# ──────────────────────────────────────────────
+
+def _bar(value: float, max_val: float = 100.0, width: int = 30) -> str:
+    filled = int(round(value / max_val * width))
+    return "█" * filled + "░" * (width - filled)
+
+
+def print_bar_chart(df: pd.DataFrame, label_col: str, value_col: str, title: str):
+    print(f"\n{'═'*60}")
+    print(f"  {title}")
+    print(f"{'═'*60}")
+    max_val = df[value_col].max()
+    for _, row in df.iterrows():
+        bar  = _bar(row[value_col], max_val)
+        lbl  = str(row[label_col])[:18].ljust(18)
+        print(f"  {lbl} {bar} {row[value_col]:.1f}%")
+
+
+def print_line_chart(series: pd.Series, title: str, height: int = 8):
+    """Minimal ASCII line chart."""
+    values = series.values.astype(float)
+    lo, hi = values.min(), values.max()
+    rng = hi - lo if hi != lo else 1
+
+    print(f"\n{'═'*60}")
+    print(f"  {title}")
+    print(f"{'═'*60}")
+
+    for row_i in range(height, -1, -1):
+        threshold = lo + (row_i / height) * rng
+        line = f"  {threshold:5.1f}% | "
+        for v in values:
+            if v >= threshold:
+                line += "▓ "
+            else:
+                line += "  "
+        print(line)
+
+    print("         " + "──" * len(values))
+    indices = [str(i + 1) for i in range(len(values))]
+    print("         " + " ".join(f"{x:<2}" for x in indices))
+    print("         (day index)")
+
+
+# ──────────────────────────────────────────────
+# 5.  INSIGHTS GENERATOR
+# ──────────────────────────────────────────────
+
+def generate_insights(df: pd.DataFrame, threshold: float = 75.0) -> list[str]:
+    insights = []
+
+    overall = df["Present"].mean() * 100
+    insights.append(f"Overall average attendance: {overall:.1f}%")
+
+    low = low_attendance_students(df, threshold)
+    insights.append(
+        f"{len(low)} student(s) have attendance below {threshold}%: "
+        + ", ".join(low["Name"].tolist())
+    )
+
+    dept = department_attendance(df)
+    best_dept  = dept.iloc[0]
+    worst_dept = dept.iloc[-1]
+    diff = best_dept["Avg_Attendance_Pct"] - worst_dept["Avg_Attendance_Pct"]
+    insights.append(
+        f"{worst_dept['Department']} dept attendance is {diff:.1f}% lower "
+        f"than {best_dept['Department']}"
+    )
+
+    subj = subject_attendance(df)
+    worst_subj = subj.iloc[-1]
+    insights.append(
+        f"'{worst_subj['Subject']}' has the lowest attendance at {worst_subj['Avg_Attendance_Pct']:.1f}%"
+    )
+
+    col = college_attendance(df)
+    worst_col = col.iloc[-1]
+    insights.append(
+        f"'{worst_col['College']}' has the highest absentee rate "
+        f"(attendance: {worst_col['Avg_Attendance_Pct']:.1f}%)"
+    )
+
+    missing = missing_class_detection(df, threshold=60.0)
+    if not missing.empty:
+        row = missing.iloc[0]
+        insights.append(
+            f"Possible missing/skipped class: {row['Subject']} on "
+            f"{row['Date'].strftime('%Y-%m-%d')} had only {row['Attendance_Pct']:.1f}% attendance"
+        )
+
+    return insights
+
+
+# ──────────────────────────────────────────────
+# 6.  REPORT EXPORT
+# ──────────────────────────────────────────────
+
+def export_reports(df: pd.DataFrame, out_dir: str = "reports"):
+    os.makedirs(out_dir, exist_ok=True)
+
+    student_attendance(df).to_csv(
+        os.path.join(out_dir, "student_report.csv"), index=False
+    )
+    department_attendance(df).to_csv(
+        os.path.join(out_dir, "department_report.csv"), index=False
+    )
+    college_attendance(df).to_csv(
+        os.path.join(out_dir, "college_report.csv"), index=False
+    )
+    subject_attendance(df).to_csv(
+        os.path.join(out_dir, "subject_report.csv"), index=False
+    )
+    daily_trend(df).to_csv(
+        os.path.join(out_dir, "daily_trend.csv"), index=False
+    )
+    missing_class_detection(df).to_csv(
+        os.path.join(out_dir, "missing_classes.csv"), index=False
+    )
+    print(f"\n  [+] CSV reports saved to '{out_dir}/' directory")
+
+
+# ──────────────────────────────────────────────
+# 7.  INTERACTIVE MENU
+# ──────────────────────────────────────────────
+
+def print_table(df: pd.DataFrame, max_rows: int = 20):
+    print(df.head(max_rows).to_string(index=False))
+
+
+def interactive_menu(df: pd.DataFrame):
+    menu = """
+╔══════════════════════════════════════╗
+║   ATTENDANCE ANALYTICS SYSTEM        ║
+╚══════════════════════════════════════╝
+  1. Overview (totals & averages)
+  2. Student attendance report
+  3. Low attendance students
+  4. Department-wise analytics
+  5. College-wise analytics
+  6. Subject-wise analytics
+  7. Daily attendance trend (chart)
+  8. Missing class detection
+  9. Generate insights
+ 10. Export all CSV reports
+  0. Exit
+"""
+    while True:
+        print(menu)
+        choice = input("  Enter option: ").strip()
+
+        if choice == "0":
+            print("\n  Goodbye!\n")
+            break
+
+        elif choice == "1":
+            total_students = df["Student_ID"].nunique()
+            total_classes  = df.groupby(["Date", "Subject"]).ngroups
+            avg_att        = df["Present"].mean() * 100
+            low_count      = len(low_attendance_students(df))
+            print(f"\n  Total Students       : {total_students}")
+            print(f"  Total Class Sessions : {total_classes}")
+            print(f"  Overall Avg Att.     : {avg_att:.1f}%")
+            print(f"  Students Below 75%   : {low_count}")
+
+        elif choice == "2":
+            rpt = student_attendance(df)
+            print("\n")
+            print_table(rpt)
+
+        elif choice == "3":
+            t = input("  Threshold % (default 75): ").strip()
+            threshold = float(t) if t else 75.0
+            low = low_attendance_students(df, threshold)
+            if low.empty:
+                print(f"\n  No students below {threshold}%")
+            else:
+                print(f"\n  Students below {threshold}%:")
+                print_table(low)
+
+        elif choice == "4":
+            dept = department_attendance(df)
+            print_table(dept)
+            print_bar_chart(dept, "Department", "Avg_Attendance_Pct",
+                            "Department-wise Attendance")
+
+        elif choice == "5":
+            col = college_attendance(df)
+            print_table(col)
+            print_bar_chart(col, "College", "Avg_Attendance_Pct",
+                            "College-wise Attendance")
+
+        elif choice == "6":
+            subj = subject_attendance(df)
+            print_table(subj)
+            print_bar_chart(subj, "Subject", "Avg_Attendance_Pct",
+                            "Subject-wise Attendance")
+
+        elif choice == "7":
+            trend = daily_trend(df)
+            print_table(trend)
+            print_line_chart(trend["Avg_Attendance_Pct"],
+                             "Daily Attendance Trend")
+
+        elif choice == "8":
+            t = input("  Alert threshold % (default 60): ").strip()
+            threshold = float(t) if t else 60.0
+            missing = missing_class_detection(df, threshold)
+            if missing.empty:
+                print(f"\n  No classes below {threshold}%")
+            else:
+                print(f"\n  Classes with attendance < {threshold}%:")
+                print_table(missing)
+
+        elif choice == "9":
+            insights = generate_insights(df)
+            print("\n  ── KEY INSIGHTS ──────────────────────────")
+            for i, insight in enumerate(insights, 1):
+                print(f"  {i}. {insight}")
+
+        elif choice == "10":
+            export_reports(df)
+
+        else:
+            print("  Invalid option, try again.")
+
+        input("\n  Press Enter to continue...")
+
+
+# ──────────────────────────────────────────────
+# 8.  ENTRY POINT
+# ──────────────────────────────────────────────
+
+def main():
+    print("\n" + "="*60)
+    print("  ATTENDANCE ANALYTICS SYSTEM")
+    print("="*60)
+
+    data_dir = "attendance_data"
+
+    # Generate sample data if none exists
+    if not os.path.exists(os.path.join(data_dir, "students.csv")):
+        print("\n  No data found. Generating sample data...\n")
+        generate_sample_data(data_dir)
+
+    print("\n  Loading and merging data...")
+    df = load_and_merge(data_dir)
+    print(f"  Loaded {len(df)} attendance records for "
+          f"{df['Student_ID'].nunique()} students.\n")
+
+    interactive_menu(df)
+
+
+if __name__ == "__main__":
+    main()
