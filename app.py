@@ -167,46 +167,104 @@ st.markdown("""
 # SIDEBAR
 # ─────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 📂 Data Source")
-    src = st.radio("Dataset", ["Generated (200K)", "Upload My Data"])
-    if src == "Upload My Data":
-        up = st.file_uploader("CSV / Excel", type=["csv", "xlsx", "xls"])
-        if up:
-            df_raw = load_user(up)
-            if df_raw.empty:
-                st.stop()
-            st.success(f"{len(df_raw):,} records loaded")
-        else:
-            st.info("Awaiting upload …")
+
+    st.markdown("## 📂 Upload Dataset")
+
+    up = st.file_uploader(
+        "Upload CSV / Excel File",
+        type=["csv", "xlsx", "xls"]
+    )
+
+    if up:
+        df_raw = load_user(up)
+
+        if df_raw.empty:
+            st.error("Uploaded file is empty.")
             st.stop()
+
+        st.success(f"{len(df_raw):,} records loaded ✓")
+
     else:
-        with st.spinner("Generating 200K records …"):
-            df_raw = generate_data(200_000)
-        st.success("200,000 records ready ✓")
+        st.warning("Please upload a dataset to continue.")
+        st.stop()
 
     st.markdown("---")
     st.markdown("## 🔧 Filters")
-    pt_opts = sorted(df_raw["Program_Type"].unique())
-    pt_sel  = st.multiselect("Program Type", pt_opts, default=pt_opts)
-    md_opts = sorted(df_raw["Mode"].unique())
-    md_sel  = st.multiselect("Mode", md_opts, default=md_opts)
-    dur_r   = st.slider("Duration (months)", 1, 36, (1, 36))
-    cost_r  = st.slider("Cost (₹ thousands)", 0, 500, (0, 500))
+
+    # Program Type Filter
+    if "Program_Type" in df_raw.columns:
+        pt_opts = sorted(df_raw["Program_Type"].dropna().unique())
+        pt_sel = st.multiselect(
+            "Program Type",
+            pt_opts,
+            default=pt_opts
+        )
+    else:
+        pt_sel = []
+
+    # Mode Filter
+    if "Mode" in df_raw.columns:
+        md_opts = sorted(df_raw["Mode"].dropna().unique())
+        md_sel = st.multiselect(
+            "Mode",
+            md_opts,
+            default=md_opts
+        )
+    else:
+        md_sel = []
+
+    # Duration Filter
+    if "Duration_Months" in df_raw.columns:
+        min_dur = int(df_raw["Duration_Months"].min())
+        max_dur = int(df_raw["Duration_Months"].max())
+
+        dur_r = st.slider(
+            "Duration (months)",
+            min_dur,
+            max_dur,
+            (min_dur, max_dur)
+        )
+    else:
+        dur_r = (0, 100)
+
+    # Cost Filter
+    if "Cost" in df_raw.columns:
+        min_cost = int(df_raw["Cost"].min() / 1000)
+        max_cost = int(df_raw["Cost"].max() / 1000)
+
+        cost_r = st.slider(
+            "Cost (₹ thousands)",
+            min_cost,
+            max_cost,
+            (min_cost, max_cost)
+        )
+    else:
+        cost_r = (0, 1000)
+
     st.markdown("---")
-    st.caption("PragyanAI v2.0 · numpy + pandas + matplotlib")
+    st.caption("PragyanAI v2.0")
 
 
-df = df_raw[
-    df_raw["Program_Type"].isin(pt_sel) &
-    df_raw["Mode"].isin(md_sel) &
-    df_raw["Duration_Months"].between(*dur_r) &
-    df_raw["Cost"].between(cost_r[0]*1000, cost_r[1]*1000)
-].copy()
+# ─────────────────────────────────────────────
+# FILTERED DATA
+# ─────────────────────────────────────────────
+df = df_raw.copy()
+
+if "Program_Type" in df.columns and len(pt_sel) > 0:
+    df = df[df["Program_Type"].isin(pt_sel)]
+
+if "Mode" in df.columns and len(md_sel) > 0:
+    df = df[df["Mode"].isin(md_sel)]
+
+if "Duration_Months" in df.columns:
+    df = df[df["Duration_Months"].between(*dur_r)]
+
+if "Cost" in df.columns:
+    df = df[df["Cost"].between(cost_r[0] * 1000, cost_r[1] * 1000)]
 
 if df.empty:
-    st.warning("No records match filters. Adjust sidebar.")
+    st.warning("No records match filters.")
     st.stop()
-
 
 # ─────────────────────────────────────────────
 # KPI STRIP
