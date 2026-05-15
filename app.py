@@ -1,26 +1,21 @@
-"""
-Attendance Analytics System
-Uses only:
-- numpy
-- pandas
-- python standard library
-
-Run:
-python app.py
-"""
-
+import streamlit as st
+import pandas as pd
+import numpy as np
 import os
 import glob
 import random
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
 
+st.set_page_config(
+    page_title="Attendance Analytics System",
+    layout="wide"
+)
 
 # ──────────────────────────────────────────────
-# 1. SAMPLE DATA GENERATOR
+# SAMPLE DATA GENERATOR
 # ──────────────────────────────────────────────
 
+@st.cache_data
 def generate_sample_data(output_dir="attendance_data"):
 
     os.makedirs(output_dir, exist_ok=True)
@@ -99,19 +94,20 @@ def generate_sample_data(output_dir="attendance_data"):
             index=False
         )
 
-    print("\nSample CSV files generated successfully.\n")
+    return output_dir
 
 
 # ──────────────────────────────────────────────
-# 2. LOAD AND MERGE DATA
+# LOAD DATA
 # ──────────────────────────────────────────────
 
+@st.cache_data
 def load_and_merge(data_dir):
 
     students_path = f"{data_dir}/students.csv"
 
     if not os.path.exists(students_path):
-        raise FileNotFoundError("students.csv not found")
+        return pd.DataFrame()
 
     students = pd.read_csv(students_path)
 
@@ -119,8 +115,8 @@ def load_and_merge(data_dir):
         glob.glob(f"{data_dir}/daily/*.csv")
     )
 
-    if not csv_files:
-        raise FileNotFoundError("No CSV attendance files found")
+    if len(csv_files) == 0:
+        return pd.DataFrame()
 
     df_list = []
 
@@ -131,7 +127,10 @@ def load_and_merge(data_dir):
             df_list.append(data)
 
         except Exception as e:
-            print(f"Error reading {file}: {e}")
+            st.error(f"Error reading {file}: {e}")
+
+    if len(df_list) == 0:
+        return pd.DataFrame()
 
     attendance = pd.concat(df_list, ignore_index=True)
 
@@ -151,7 +150,7 @@ def load_and_merge(data_dir):
 
 
 # ──────────────────────────────────────────────
-# 3. ANALYTICS FUNCTIONS
+# ANALYTICS FUNCTIONS
 # ──────────────────────────────────────────────
 
 def student_attendance(df):
@@ -237,175 +236,153 @@ def daily_trend(df):
 
 
 # ──────────────────────────────────────────────
-# 4. REPORT EXPORT
+# MAIN APP
 # ──────────────────────────────────────────────
 
-def export_reports(df):
+st.title("📊 Attendance Analytics System")
 
-    os.makedirs("reports", exist_ok=True)
+data_dir = "attendance_data"
 
-    student_attendance(df).to_csv(
-        "reports/student_report.csv",
-        index=False
+# Generate sample data if missing
+if not os.path.exists(data_dir):
+    generate_sample_data(data_dir)
+
+if not os.path.exists(f"{data_dir}/students.csv"):
+    generate_sample_data(data_dir)
+
+if not os.path.exists(f"{data_dir}/daily"):
+    generate_sample_data(data_dir)
+
+csv_files = glob.glob(f"{data_dir}/daily/*.csv")
+
+if len(csv_files) == 0:
+    generate_sample_data(data_dir)
+
+# Load data
+df = load_and_merge(data_dir)
+
+if df.empty:
+    st.error("No data found")
+    st.stop()
+
+# ──────────────────────────────────────────────
+# SIDEBAR
+# ──────────────────────────────────────────────
+
+st.sidebar.title("Menu")
+
+option = st.sidebar.selectbox(
+    "Select Analytics",
+    [
+        "Overview",
+        "Student Attendance",
+        "Low Attendance",
+        "Department Analytics",
+        "Subject Analytics",
+        "Daily Trend"
+    ]
+)
+
+# ──────────────────────────────────────────────
+# OVERVIEW
+# ──────────────────────────────────────────────
+
+if option == "Overview":
+
+    st.header("Overview")
+
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric(
+        "Total Students",
+        df["Student_ID"].nunique()
     )
 
-    department_attendance(df).to_csv(
-        "reports/department_report.csv",
-        index=False
+    c2.metric(
+        "Total Records",
+        len(df)
     )
 
-    subject_attendance(df).to_csv(
-        "reports/subject_report.csv",
-        index=False
+    c3.metric(
+        "Average Attendance %",
+        round(df["Present"].mean() * 100, 2)
     )
 
-    daily_trend(df).to_csv(
-        "reports/daily_trend.csv",
-        index=False
+# ──────────────────────────────────────────────
+# STUDENT ATTENDANCE
+# ──────────────────────────────────────────────
+
+elif option == "Student Attendance":
+
+    st.header("Student Attendance Report")
+
+    report = student_attendance(df)
+
+    st.dataframe(report, use_container_width=True)
+
+# ──────────────────────────────────────────────
+# LOW ATTENDANCE
+# ──────────────────────────────────────────────
+
+elif option == "Low Attendance":
+
+    st.header("Low Attendance Students")
+
+    threshold = st.slider(
+        "Attendance Threshold %",
+        0,
+        100,
+        75
     )
 
-    print("\nReports exported successfully.\n")
+    low = low_attendance_students(df, threshold)
 
-
-# ──────────────────────────────────────────────
-# 5. DISPLAY FUNCTIONS
-# ──────────────────────────────────────────────
-
-def show_overview(df):
-
-    print("\n========== OVERVIEW ==========\n")
-
-    print(f"Total Students      : {df['Student_ID'].nunique()}")
-
-    print(f"Total Records       : {len(df)}")
-
-    print(f"Average Attendance  : {round(df['Present'].mean()*100, 2)}%")
-
-
-def show_student_report(df):
-
-    print("\n========== STUDENT REPORT ==========\n")
-
-    print(student_attendance(df).to_string(index=False))
-
-
-def show_low_attendance(df):
-
-    print("\n========== LOW ATTENDANCE ==========\n")
-
-    low = low_attendance_students(df)
-
-    if low.empty:
-        print("No low attendance students")
-    else:
-        print(low.to_string(index=False))
-
-
-def show_department_report(df):
-
-    print("\n========== DEPARTMENT REPORT ==========\n")
-
-    print(department_attendance(df).to_string(index=False))
-
-
-def show_subject_report(df):
-
-    print("\n========== SUBJECT REPORT ==========\n")
-
-    print(subject_attendance(df).to_string(index=False))
-
-
-def show_daily_trend(df):
-
-    print("\n========== DAILY TREND ==========\n")
-
-    print(daily_trend(df).to_string(index=False))
-
+    st.dataframe(low, use_container_width=True)
 
 # ──────────────────────────────────────────────
-# 6. MAIN MENU
+# DEPARTMENT ANALYTICS
 # ──────────────────────────────────────────────
 
-def menu(df):
+elif option == "Department Analytics":
 
-    while True:
+    st.header("Department Attendance")
 
-        print("""
-========================================
-ATTENDANCE ANALYTICS SYSTEM
-========================================
+    dept = department_attendance(df)
 
-1. Overview
-2. Student Attendance Report
-3. Low Attendance Students
-4. Department Analytics
-5. Subject Analytics
-6. Daily Attendance Trend
-7. Export Reports
-0. Exit
-""")
+    st.dataframe(dept, use_container_width=True)
 
-        choice = input("Enter option: ").strip()
-
-        if choice == "1":
-            show_overview(df)
-
-        elif choice == "2":
-            show_student_report(df)
-
-        elif choice == "3":
-            show_low_attendance(df)
-
-        elif choice == "4":
-            show_department_report(df)
-
-        elif choice == "5":
-            show_subject_report(df)
-
-        elif choice == "6":
-            show_daily_trend(df)
-
-        elif choice == "7":
-            export_reports(df)
-
-        elif choice == "0":
-            print("\nExiting...\n")
-            break
-
-        else:
-            print("\nInvalid option\n")
-
-        input("\nPress Enter to continue...")
-
+    st.bar_chart(
+        dept.set_index("Department")["Attendance_Pct"]
+    )
 
 # ──────────────────────────────────────────────
-# 7. MAIN FUNCTION
+# SUBJECT ANALYTICS
 # ──────────────────────────────────────────────
 
-def main():
+elif option == "Subject Analytics":
 
-    print("\nATTENDANCE ANALYTICS SYSTEM\n")
+    st.header("Subject Attendance")
 
-    data_dir = "attendance_data"
+    subject = subject_attendance(df)
 
-    if not os.path.exists(f"{data_dir}/students.csv"):
+    st.dataframe(subject, use_container_width=True)
 
-        print("Generating sample data...")
-
-        generate_sample_data(data_dir)
-
-    print("Loading data...\n")
-
-    df = load_and_merge(data_dir)
-
-    print(f"Loaded {len(df)} attendance records.\n")
-
-    menu(df)
-
+    st.bar_chart(
+        subject.set_index("Subject")["Attendance_Pct"]
+    )
 
 # ──────────────────────────────────────────────
-# 8. ENTRY POINT
+# DAILY TREND
 # ──────────────────────────────────────────────
 
-if __name__ == "__main__":
-    main()
+elif option == "Daily Trend":
+
+    st.header("Daily Attendance Trend")
+
+    trend = daily_trend(df)
+
+    st.dataframe(trend, use_container_width=True)
+
+    st.line_chart(
+        trend.set_index("Date")["Attendance_Pct"]
+    )
