@@ -149,7 +149,7 @@ with st.sidebar:
     )
 
     if up:
-        df_raw = load_user(up)
+        return pd.DataFrame()
 
         if df_raw.empty:
             st.stop()
