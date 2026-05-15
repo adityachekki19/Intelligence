@@ -140,65 +140,17 @@ def heatmap(ax, data, title, cmap="Blues"):
 # ─────────────────────────────────────────────
 # SIDEBAR
 # ─────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("## 📂 Upload Dataset")
+def load_user(f):
+    name = f.name.lower()
 
-    up = st.file_uploader(
-        "Upload CSV / Excel File",
-        type=["csv", "xlsx", "xls"]
-    )
+    if name.endswith(".csv"):
+        return pd.read_csv(f)
 
-    if up:
-        return pd.DataFrame()
+    if name.endswith((".xlsx", ".xls")):
+        return pd.read_excel(f)
 
-        if df_raw.empty:
-            st.stop()
-
-        st.success(f"{len(df_raw):,} records loaded ✓")
-
-    else:
-        st.warning("Please upload a dataset to continue.")
-        st.stop()
-
-    st.markdown("---")
-    st.markdown("## 🔧 Filters")
-
-    pt_opts = sorted(df_raw["Program_Type"].unique())
-    pt_sel  = st.multiselect(
-        "Program Type",
-        pt_opts,
-        default=pt_opts
-    )
-
-    md_opts = sorted(df_raw["Mode"].unique())
-    md_sel  = st.multiselect(
-        "Mode",
-        md_opts,
-        default=md_opts
-    )
-
-    dur_r = st.slider(
-        "Duration (months)",
-        int(df_raw["Duration_Months"].min()),
-        int(df_raw["Duration_Months"].max()),
-        (
-            int(df_raw["Duration_Months"].min()),
-            int(df_raw["Duration_Months"].max())
-        )
-    )
-
-    cost_r = st.slider(
-        "Cost (₹ thousands)",
-        int(df_raw["Cost"].min() / 1000),
-        int(df_raw["Cost"].max() / 1000),
-        (
-            int(df_raw["Cost"].min() / 1000),
-            int(df_raw["Cost"].max() / 1000)
-        )
-    )
-
-    st.markdown("---")
-    st.caption("PragyanAI v2.0")
+    st.error("Unsupported file. Upload CSV or Excel.")
+    return pd.DataFrame()
 
 
 # ─────────────────────────────────────────────
