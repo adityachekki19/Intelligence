@@ -137,122 +137,68 @@ def heatmap(ax, data, title, cmap="Blues"):
 # ─────────────────────────────────────────────
 # DATA GENERATION  (200K records)
 # ─────────────────────────────────────────────
-@st.cache_data(show_spinner=False)
-def generate_data(n=200_000, seed=42):
-    rng = np.random.default_rng(seed)
+# ─────────────────────────────────────────────
+# SIDEBAR
+# ─────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("## 📂 Upload Dataset")
 
-    prog_types  = ["Basic", "Advanced", "GenAI", "Full Stack", "Data Science"]
-    modes       = ["Online", "Offline", "Hybrid"]
-    degrees     = ["BTech", "MTech", "PhD"]
-    companies   = ["Top", "Mid", "Startup"]
-    departments = ["CSE", "ECE", "IT", "Mechanical", "Civil", "MBA"]
-    tiers       = ["Tier 1", "Tier 2", "Tier 3"]
-
-    pt   = rng.choice(prog_types, n, p=[0.15, 0.25, 0.20, 0.25, 0.15])
-    mode = rng.choice(modes, n, p=[0.35, 0.30, 0.35])
-
-    duration = np.where(pt == "Basic",       rng.integers(1,  4,  n),
-               np.where(pt == "Advanced",    rng.integers(3,  13, n),
-               np.where(pt == "GenAI",       rng.integers(4,  13, n),
-               np.where(pt == "Full Stack",  rng.integers(6,  25, n),
-                                             rng.integers(6,  37, n)))))
-
-    subjects = rng.integers(3, 18, n)
-    projects = np.clip(rng.integers(0, 12, n), 0, 11)
-    tools    = np.clip(rng.integers(1, 15, n), 1, 14)
-
-    base = {"Basic": 15000, "Advanced": 45000, "GenAI": 80000,
-            "Full Stack": 60000, "Data Science": 70000}
-    cost = np.clip(
-        np.array([base[p] for p in pt]) + rng.normal(0, 20000, n),
-        5000, 500000).astype(int)
-
-    fac_exp  = rng.integers(1, 25, n)
-    fac_deg  = rng.choice(degrees, n)
-    fac_ind  = rng.choice(["Yes", "No"], n, p=[0.55, 0.45])
-    fac_comp = rng.choice(companies, n)
-
-    cgpa    = rng.uniform(5.0, 10.0, n).round(2)
-    dept    = rng.choice(departments, n)
-    tier    = rng.choice(tiers, n, p=[0.20, 0.45, 0.35])
-    skill_b = rng.integers(0, 4, n)
-
-    imp = (
-        (np.clip(duration, 0, 12) / 12) * 1.5 +
-        (np.clip(projects, 0, 10) / 10) * 2.0 +
-        (np.clip(tools,    0, 12) / 12) * 1.0 +
-        (fac_exp / 24) * 1.0 +
-        (fac_ind == "Yes").astype(int) * 0.8 +
-        (mode == "Hybrid").astype(int) * 0.5 +
-        (mode == "Offline").astype(int) * 0.3 +
-        rng.normal(0, 0.5, n)
+    up = st.file_uploader(
+        "Upload CSV / Excel File",
+        type=["csv", "xlsx", "xls"]
     )
-    skill_imp = np.clip(np.round(imp / imp.max() * 3).astype(int), 0, 3)
-    skill_a   = np.clip(skill_b + skill_imp, 0, 3)
 
-    pp = np.clip(
-        0.30 + 0.15*(skill_imp >= 2) + 0.10*(projects >= 5) +
-        0.10*(tools >= 8) + 0.10*(fac_ind == "Yes") +
-        0.05*(tier == "Tier 1") + 0.05*(cgpa >= 8.0) +
-        0.10*(mode == "Hybrid") - 0.05*(duration > 24), 0, 0.95)
-    placed = rng.uniform(0, 1, n) < pp
+    if up:
+        df_raw = load_user(up)
 
-    salary = np.where(placed,
-        np.clip(3 + skill_imp*2.5 + projects*0.5 +
-                (cgpa-6)*0.8 + rng.normal(0, 1.5, n), 2, 40), 0.0).round(2)
-    roi = np.where(cost > 0, (salary * 100000) / cost, 0).round(4)
+        if df_raw.empty:
+            st.stop()
 
-    eff = (skill_imp/3*40 + placed.astype(int)*30 +
-           np.clip(roi / (roi.max()+1e-9), 0, 1)*30).round(2)
-    l_density = ((projects + tools) / np.clip(duration, 1, 36)).round(4)
+        st.success(f"{len(df_raw):,} records loaded ✓")
 
-    df = pd.DataFrame({
-        "Program_ID":          [f"P{i:06d}" for i in range(n)],
-        "Program_Name":        [f"{pt[i]} Prog {i%500}" for i in range(n)],
-        "Program_Type":        pt,       "Mode":               mode,
-        "Duration_Months":     duration, "Subjects_Count":     subjects,
-        "Projects_Count":      projects, "Tools_Count":        tools,
-        "Cost":                cost,
-        "Faculty_Experience":  fac_exp,  "Faculty_Degree":     fac_deg,
-        "Industry_Experience": fac_ind,  "Company_Background": fac_comp,
-        "Student_ID":          [f"S{i:07d}" for i in range(n)],
-        "College_Tier":        tier,     "Department":         dept,
-        "CGPA":                cgpa,
-        "Skill_Level_Before":  skill_b,  "Skill_Level_After":  skill_a,
-        "Skill_Improvement":   skill_imp,
-        "Placement_Status":    placed,   "Salary_LPA":         salary,
-        "ROI":                 roi,      "Effectiveness_Score":eff,
-        "Learning_Density":    l_density,
-    })
+    else:
+        st.warning("Please upload a dataset to continue.")
+        st.stop()
 
-    df["Duration_Bucket"] = pd.cut(df["Duration_Months"],
-        bins=[0, 3, 6, 12, 36], labels=["<3m", "3–6m", "6–12m", ">12m"])
-    df["Cost_Bucket"] = pd.cut(df["Cost"],
-        bins=[0, 50000, 200000, 500000], labels=["<50K", "50K–2L", ">2L"])
+    st.markdown("---")
+    st.markdown("## 🔧 Filters")
 
-    def seg(r):
-        if 6 <= r.Duration_Months <= 12 and r.Projects_Count >= 5 and r.Faculty_Experience >= 5:
-            return "High Value"
-        if r.Cost > 200000 and r.Projects_Count < 3:
-            return "Overpriced"
-        if r.Duration_Months < 3 and r.Tools_Count < 3:
-            return "Low Depth"
-        if r.Subjects_Count > 10 and r.Skill_Improvement <= 1:
-            return "Heavy+Inefficient"
-        return "Standard"
+    pt_opts = sorted(df_raw["Program_Type"].unique())
+    pt_sel  = st.multiselect(
+        "Program Type",
+        pt_opts,
+        default=pt_opts
+    )
 
-    df["Segment"] = df.apply(seg, axis=1)
-    return df
+    md_opts = sorted(df_raw["Mode"].unique())
+    md_sel  = st.multiselect(
+        "Mode",
+        md_opts,
+        default=md_opts
+    )
 
+    dur_r = st.slider(
+        "Duration (months)",
+        int(df_raw["Duration_Months"].min()),
+        int(df_raw["Duration_Months"].max()),
+        (
+            int(df_raw["Duration_Months"].min()),
+            int(df_raw["Duration_Months"].max())
+        )
+    )
 
-def load_user(f):
-    name = f.name.lower()
-    if name.endswith(".csv"):
-        return pd.read_csv(f)
-    if name.endswith((".xlsx", ".xls")):
-        return pd.read_excel(f)
-    st.error("Unsupported file. Upload CSV or Excel.")
-    return pd.DataFrame()
+    cost_r = st.slider(
+        "Cost (₹ thousands)",
+        int(df_raw["Cost"].min() / 1000),
+        int(df_raw["Cost"].max() / 1000),
+        (
+            int(df_raw["Cost"].min() / 1000),
+            int(df_raw["Cost"].max() / 1000)
+        )
+    )
+
+    st.markdown("---")
+    st.caption("PragyanAI v2.0")
 
 
 # ─────────────────────────────────────────────
