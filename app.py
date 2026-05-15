@@ -1,73 +1,82 @@
 """
 Attendance Analytics System
-Uses only: numpy, pandas, python stdlib
-Run: python app.py
+Uses only:
+- numpy
+- pandas
+- python standard library
+
+Run:
+python app.py
 """
 
 import os
 import glob
+import random
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
-import random
 
 
 # ──────────────────────────────────────────────
-# 1.  SAMPLE DATA GENERATOR
+# 1. SAMPLE DATA GENERATOR
 # ──────────────────────────────────────────────
 
-def generate_sample_data(output_dir: str = "attendance_data") -> str:
-    """
-    Creates synthetic student master CSV + daily attendance XLSX files
-    so the pipeline works out-of-the-box without any real uploads.
-    Returns the path to the data directory.
-    """
+def generate_sample_data(output_dir="attendance_data"):
+
     os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(os.path.join(output_dir, "daily"), exist_ok=True)
+    os.makedirs(f"{output_dir}/daily", exist_ok=True)
 
     random.seed(42)
     np.random.seed(42)
 
-    # --- Student master ---
     students = pd.DataFrame({
         "Student_ID": [f"S{i:03d}" for i in range(1, 21)],
-        "Name": [
-            "Ravi",    "Sneha",  "Rahul",  "Priya",   "Amit",
-            "Kavita",  "Suresh", "Meena",  "Arjun",   "Divya",
-            "Nikhil",  "Pooja",  "Sanjay", "Aarti",   "Vikram",
-            "Nisha",   "Rohan",  "Sunita", "Karthik",  "Lata",
-        ],
-        "College": [
-            "ABC College", "XYZ College", "ABC College", "LMN College", "XYZ College",
-            "LMN College", "ABC College", "XYZ College", "LMN College", "ABC College",
-            "XYZ College", "ABC College", "LMN College", "XYZ College", "ABC College",
-            "LMN College", "XYZ College", "ABC College", "LMN College", "XYZ College",
-        ],
-        "Department": [
-            "CSE", "ECE", "ME",  "CSE", "ECE",
-            "ME",  "CSE", "ECE", "ME",  "CSE",
-            "ECE", "ME",  "CSE", "ECE", "ME",
-            "CSE", "ECE", "ME",  "CSE", "ECE",
-        ],
-        "Year": np.random.choice([1, 2, 3, 4], size=20),
-    })
-    students_path = os.path.join(output_dir, "students.csv")
-    students.to_csv(students_path, index=False)
-    print(f"  [+] Generated {students_path}")
 
-    # --- Daily attendance (10 days, 3 subjects) ---
+        "Name": [
+            "Ravi", "Sneha", "Rahul", "Priya", "Amit",
+            "Kavita", "Suresh", "Meena", "Arjun", "Divya",
+            "Nikhil", "Pooja", "Sanjay", "Aarti", "Vikram",
+            "Nisha", "Rohan", "Sunita", "Karthik", "Lata"
+        ],
+
+        "College": [
+            "ABC College", "XYZ College", "ABC College",
+            "LMN College", "XYZ College",
+
+            "LMN College", "ABC College", "XYZ College",
+            "LMN College", "ABC College",
+
+            "XYZ College", "ABC College", "LMN College",
+            "XYZ College", "ABC College",
+
+            "LMN College", "XYZ College", "ABC College",
+            "LMN College", "XYZ College"
+        ],
+
+        "Department": [
+            "CSE", "ECE", "ME", "CSE", "ECE",
+            "ME", "CSE", "ECE", "ME", "CSE",
+            "ECE", "ME", "CSE", "ECE", "ME",
+            "CSE", "ECE", "ME", "CSE", "ECE"
+        ],
+
+        "Year": np.random.choice([1, 2, 3, 4], size=20)
+    })
+
+    students.to_csv(f"{output_dir}/students.csv", index=False)
+
     subjects = ["Machine Learning", "Deep Learning", "Python"]
+
     start_date = datetime(2025, 2, 1)
 
-    # Assign each student a base attendance probability
     base_prob = np.random.uniform(0.55, 0.98, size=len(students))
 
     for day_offset in range(10):
+
         date = start_date + timedelta(days=day_offset)
-        date_str = date.strftime("%Y-%m-%d")
+
         subject = subjects[day_offset % len(subjects)]
 
-        # Deep Learning occasionally has very low attendance
         if subject == "Deep Learning" and day_offset % 4 == 1:
             probs = np.clip(base_prob * 0.5, 0.1, 0.6)
         else:
@@ -79,387 +88,324 @@ def generate_sample_data(output_dir: str = "attendance_data") -> str:
         ]
 
         day_df = pd.DataFrame({
-            "Date":       date_str,
-            "Student_ID": students["Student_ID"].values,
-            "Subject":    subject,
-            "Status":     statuses,
+            "Date": date.strftime("%Y-%m-%d"),
+            "Student_ID": students["Student_ID"],
+            "Subject": subject,
+            "Status": statuses
         })
 
-        file_path = os.path.join(
-            output_dir, "daily", f"attendance_day{day_offset+1}.xlsx"
+        day_df.to_csv(
+            f"{output_dir}/daily/attendance_day{day_offset+1}.csv",
+            index=False
         )
-        day_df.to_excel(file_path, index=False)
 
-    print(f"  [+] Generated 10 daily attendance files in {output_dir}/daily/")
-    return output_dir
+    print("\nSample CSV files generated successfully.\n")
 
 
 # ──────────────────────────────────────────────
-# 2.  DATA LOADING & INTEGRATION
+# 2. LOAD AND MERGE DATA
 # ──────────────────────────────────────────────
 
-def load_and_merge(data_dir: str) -> pd.DataFrame:
-    """Load all attendance xlsx files, concatenate, merge with students."""
+def load_and_merge(data_dir):
 
-    # Load student master
-    students_path = os.path.join(data_dir, "students.csv")
+    students_path = f"{data_dir}/students.csv"
+
     if not os.path.exists(students_path):
-        raise FileNotFoundError(f"students.csv not found in {data_dir}")
+        raise FileNotFoundError("students.csv not found")
+
     students = pd.read_csv(students_path)
 
-    # Load all daily attendance files
-    pattern = os.path.join(data_dir, "daily", "*.xlsx")
-    files = glob.glob(pattern)
-    if not files:
-        raise FileNotFoundError(f"No attendance xlsx files found at {pattern}")
+    csv_files = sorted(
+        glob.glob(f"{data_dir}/daily/*.csv")
+    )
+
+    if not csv_files:
+        raise FileNotFoundError("No CSV attendance files found")
 
     df_list = []
-    for f in sorted(files):
-        data = pd.read_excel(f)
-        df_list.append(data)
+
+    for file in csv_files:
+
+        try:
+            data = pd.read_csv(file)
+            df_list.append(data)
+
+        except Exception as e:
+            print(f"Error reading {file}: {e}")
+
     attendance = pd.concat(df_list, ignore_index=True)
 
-    # Numeric flag
     attendance["Present"] = attendance["Status"].apply(
         lambda x: 1 if str(x).strip().lower() == "present" else 0
     )
 
-    # Merge
-    df = attendance.merge(students, on="Student_ID", how="left")
+    df = attendance.merge(
+        students,
+        on="Student_ID",
+        how="left"
+    )
+
     df["Date"] = pd.to_datetime(df["Date"])
+
     return df
 
 
 # ──────────────────────────────────────────────
-# 3.  ANALYTICS FUNCTIONS
+# 3. ANALYTICS FUNCTIONS
 # ──────────────────────────────────────────────
 
-def student_attendance(df: pd.DataFrame) -> pd.DataFrame:
-    """Student-wise attendance report."""
+def student_attendance(df):
+
     grp = df.groupby(["Student_ID", "Name"])
-    total   = grp["Present"].count().rename("Total_Classes")
+
+    total = grp["Present"].count().rename("Total_Classes")
+
     present = grp["Present"].sum().rename("Present_Count")
-    report  = pd.concat([total, present], axis=1)
-    report["Absent_Count"]   = report["Total_Classes"] - report["Present_Count"]
-    report["Attendance_Pct"] = (report["Present_Count"] / report["Total_Classes"] * 100).round(2)
+
+    report = pd.concat([total, present], axis=1)
+
+    report["Absent_Count"] = (
+        report["Total_Classes"] - report["Present_Count"]
+    )
+
+    report["Attendance_Pct"] = (
+        report["Present_Count"] /
+        report["Total_Classes"] * 100
+    ).round(2)
+
     return report.reset_index().sort_values("Attendance_Pct")
 
 
-def low_attendance_students(df: pd.DataFrame, threshold: float = 75.0) -> pd.DataFrame:
-    """Students below attendance threshold."""
+def low_attendance_students(df, threshold=75):
+
     report = student_attendance(df)
-    return report[report["Attendance_Pct"] < threshold]
+
+    return report[
+        report["Attendance_Pct"] < threshold
+    ]
 
 
-def department_attendance(df: pd.DataFrame) -> pd.DataFrame:
-    return (
+def department_attendance(df):
+
+    report = (
         df.groupby("Department")["Present"]
-          .agg(["mean", "count"])
-          .rename(columns={"mean": "Avg_Attendance_Pct", "count": "Total_Records"})
-          .assign(Avg_Attendance_Pct=lambda x: (x["Avg_Attendance_Pct"] * 100).round(2))
-          .reset_index()
-          .sort_values("Avg_Attendance_Pct", ascending=False)
+        .mean()
+        .reset_index()
+    )
+
+    report["Attendance_Pct"] = (
+        report["Present"] * 100
+    ).round(2)
+
+    return report.sort_values(
+        "Attendance_Pct",
+        ascending=False
     )
 
 
-def college_attendance(df: pd.DataFrame) -> pd.DataFrame:
-    return (
-        df.groupby("College")["Present"]
-          .agg(["mean", "count"])
-          .rename(columns={"mean": "Avg_Attendance_Pct", "count": "Total_Records"})
-          .assign(Avg_Attendance_Pct=lambda x: (x["Avg_Attendance_Pct"] * 100).round(2))
-          .reset_index()
-          .sort_values("Avg_Attendance_Pct", ascending=False)
-    )
+def subject_attendance(df):
 
-
-def subject_attendance(df: pd.DataFrame) -> pd.DataFrame:
-    return (
+    report = (
         df.groupby("Subject")["Present"]
-          .agg(["mean", "count"])
-          .rename(columns={"mean": "Avg_Attendance_Pct", "count": "Total_Records"})
-          .assign(Avg_Attendance_Pct=lambda x: (x["Avg_Attendance_Pct"] * 100).round(2))
-          .reset_index()
-          .sort_values("Avg_Attendance_Pct", ascending=False)
+        .mean()
+        .reset_index()
+    )
+
+    report["Attendance_Pct"] = (
+        report["Present"] * 100
+    ).round(2)
+
+    return report.sort_values(
+        "Attendance_Pct",
+        ascending=False
     )
 
 
-def daily_trend(df: pd.DataFrame) -> pd.DataFrame:
-    return (
+def daily_trend(df):
+
+    report = (
         df.groupby("Date")["Present"]
-          .mean()
-          .reset_index()
-          .rename(columns={"Present": "Avg_Attendance_Pct"})
-          .assign(Avg_Attendance_Pct=lambda x: (x["Avg_Attendance_Pct"] * 100).round(2))
-          .sort_values("Date")
+        .mean()
+        .reset_index()
     )
 
+    report["Attendance_Pct"] = (
+        report["Present"] * 100
+    ).round(2)
 
-def missing_class_detection(df: pd.DataFrame, threshold: float = 60.0) -> pd.DataFrame:
-    """Classes (Date × Subject) where attendance dropped below threshold."""
-    class_att = (
-        df.groupby(["Date", "Subject"])["Present"]
-          .mean()
-          .reset_index()
-          .rename(columns={"Present": "Attendance_Pct"})
-          .assign(Attendance_Pct=lambda x: (x["Attendance_Pct"] * 100).round(2))
-    )
-    return class_att[class_att["Attendance_Pct"] < threshold].sort_values("Attendance_Pct")
+    return report
 
 
 # ──────────────────────────────────────────────
-# 4.  ASCII CHART HELPERS
+# 4. REPORT EXPORT
 # ──────────────────────────────────────────────
 
-def _bar(value: float, max_val: float = 100.0, width: int = 30) -> str:
-    filled = int(round(value / max_val * width))
-    return "█" * filled + "░" * (width - filled)
+def export_reports(df):
 
-
-def print_bar_chart(df: pd.DataFrame, label_col: str, value_col: str, title: str):
-    print(f"\n{'═'*60}")
-    print(f"  {title}")
-    print(f"{'═'*60}")
-    max_val = df[value_col].max()
-    for _, row in df.iterrows():
-        bar  = _bar(row[value_col], max_val)
-        lbl  = str(row[label_col])[:18].ljust(18)
-        print(f"  {lbl} {bar} {row[value_col]:.1f}%")
-
-
-def print_line_chart(series: pd.Series, title: str, height: int = 8):
-    """Minimal ASCII line chart."""
-    values = series.values.astype(float)
-    lo, hi = values.min(), values.max()
-    rng = hi - lo if hi != lo else 1
-
-    print(f"\n{'═'*60}")
-    print(f"  {title}")
-    print(f"{'═'*60}")
-
-    for row_i in range(height, -1, -1):
-        threshold = lo + (row_i / height) * rng
-        line = f"  {threshold:5.1f}% | "
-        for v in values:
-            if v >= threshold:
-                line += "▓ "
-            else:
-                line += "  "
-        print(line)
-
-    print("         " + "──" * len(values))
-    indices = [str(i + 1) for i in range(len(values))]
-    print("         " + " ".join(f"{x:<2}" for x in indices))
-    print("         (day index)")
-
-
-# ──────────────────────────────────────────────
-# 5.  INSIGHTS GENERATOR
-# ──────────────────────────────────────────────
-
-def generate_insights(df: pd.DataFrame, threshold: float = 75.0) -> list[str]:
-    insights = []
-
-    overall = df["Present"].mean() * 100
-    insights.append(f"Overall average attendance: {overall:.1f}%")
-
-    low = low_attendance_students(df, threshold)
-    insights.append(
-        f"{len(low)} student(s) have attendance below {threshold}%: "
-        + ", ".join(low["Name"].tolist())
-    )
-
-    dept = department_attendance(df)
-    best_dept  = dept.iloc[0]
-    worst_dept = dept.iloc[-1]
-    diff = best_dept["Avg_Attendance_Pct"] - worst_dept["Avg_Attendance_Pct"]
-    insights.append(
-        f"{worst_dept['Department']} dept attendance is {diff:.1f}% lower "
-        f"than {best_dept['Department']}"
-    )
-
-    subj = subject_attendance(df)
-    worst_subj = subj.iloc[-1]
-    insights.append(
-        f"'{worst_subj['Subject']}' has the lowest attendance at {worst_subj['Avg_Attendance_Pct']:.1f}%"
-    )
-
-    col = college_attendance(df)
-    worst_col = col.iloc[-1]
-    insights.append(
-        f"'{worst_col['College']}' has the highest absentee rate "
-        f"(attendance: {worst_col['Avg_Attendance_Pct']:.1f}%)"
-    )
-
-    missing = missing_class_detection(df, threshold=60.0)
-    if not missing.empty:
-        row = missing.iloc[0]
-        insights.append(
-            f"Possible missing/skipped class: {row['Subject']} on "
-            f"{row['Date'].strftime('%Y-%m-%d')} had only {row['Attendance_Pct']:.1f}% attendance"
-        )
-
-    return insights
-
-
-# ──────────────────────────────────────────────
-# 6.  REPORT EXPORT
-# ──────────────────────────────────────────────
-
-def export_reports(df: pd.DataFrame, out_dir: str = "reports"):
-    os.makedirs(out_dir, exist_ok=True)
+    os.makedirs("reports", exist_ok=True)
 
     student_attendance(df).to_csv(
-        os.path.join(out_dir, "student_report.csv"), index=False
+        "reports/student_report.csv",
+        index=False
     )
+
     department_attendance(df).to_csv(
-        os.path.join(out_dir, "department_report.csv"), index=False
+        "reports/department_report.csv",
+        index=False
     )
-    college_attendance(df).to_csv(
-        os.path.join(out_dir, "college_report.csv"), index=False
-    )
+
     subject_attendance(df).to_csv(
-        os.path.join(out_dir, "subject_report.csv"), index=False
+        "reports/subject_report.csv",
+        index=False
     )
+
     daily_trend(df).to_csv(
-        os.path.join(out_dir, "daily_trend.csv"), index=False
+        "reports/daily_trend.csv",
+        index=False
     )
-    missing_class_detection(df).to_csv(
-        os.path.join(out_dir, "missing_classes.csv"), index=False
-    )
-    print(f"\n  [+] CSV reports saved to '{out_dir}/' directory")
+
+    print("\nReports exported successfully.\n")
 
 
 # ──────────────────────────────────────────────
-# 7.  INTERACTIVE MENU
+# 5. DISPLAY FUNCTIONS
 # ──────────────────────────────────────────────
 
-def print_table(df: pd.DataFrame, max_rows: int = 20):
-    print(df.head(max_rows).to_string(index=False))
+def show_overview(df):
+
+    print("\n========== OVERVIEW ==========\n")
+
+    print(f"Total Students      : {df['Student_ID'].nunique()}")
+
+    print(f"Total Records       : {len(df)}")
+
+    print(f"Average Attendance  : {round(df['Present'].mean()*100, 2)}%")
 
 
-def interactive_menu(df: pd.DataFrame):
-    menu = """
-╔══════════════════════════════════════╗
-║   ATTENDANCE ANALYTICS SYSTEM        ║
-╚══════════════════════════════════════╝
-  1. Overview (totals & averages)
-  2. Student attendance report
-  3. Low attendance students
-  4. Department-wise analytics
-  5. College-wise analytics
-  6. Subject-wise analytics
-  7. Daily attendance trend (chart)
-  8. Missing class detection
-  9. Generate insights
- 10. Export all CSV reports
-  0. Exit
-"""
+def show_student_report(df):
+
+    print("\n========== STUDENT REPORT ==========\n")
+
+    print(student_attendance(df).to_string(index=False))
+
+
+def show_low_attendance(df):
+
+    print("\n========== LOW ATTENDANCE ==========\n")
+
+    low = low_attendance_students(df)
+
+    if low.empty:
+        print("No low attendance students")
+    else:
+        print(low.to_string(index=False))
+
+
+def show_department_report(df):
+
+    print("\n========== DEPARTMENT REPORT ==========\n")
+
+    print(department_attendance(df).to_string(index=False))
+
+
+def show_subject_report(df):
+
+    print("\n========== SUBJECT REPORT ==========\n")
+
+    print(subject_attendance(df).to_string(index=False))
+
+
+def show_daily_trend(df):
+
+    print("\n========== DAILY TREND ==========\n")
+
+    print(daily_trend(df).to_string(index=False))
+
+
+# ──────────────────────────────────────────────
+# 6. MAIN MENU
+# ──────────────────────────────────────────────
+
+def menu(df):
+
     while True:
-        print(menu)
-        choice = input("  Enter option: ").strip()
 
-        if choice == "0":
-            print("\n  Goodbye!\n")
-            break
+        print("""
+========================================
+ATTENDANCE ANALYTICS SYSTEM
+========================================
 
-        elif choice == "1":
-            total_students = df["Student_ID"].nunique()
-            total_classes  = df.groupby(["Date", "Subject"]).ngroups
-            avg_att        = df["Present"].mean() * 100
-            low_count      = len(low_attendance_students(df))
-            print(f"\n  Total Students       : {total_students}")
-            print(f"  Total Class Sessions : {total_classes}")
-            print(f"  Overall Avg Att.     : {avg_att:.1f}%")
-            print(f"  Students Below 75%   : {low_count}")
+1. Overview
+2. Student Attendance Report
+3. Low Attendance Students
+4. Department Analytics
+5. Subject Analytics
+6. Daily Attendance Trend
+7. Export Reports
+0. Exit
+""")
+
+        choice = input("Enter option: ").strip()
+
+        if choice == "1":
+            show_overview(df)
 
         elif choice == "2":
-            rpt = student_attendance(df)
-            print("\n")
-            print_table(rpt)
+            show_student_report(df)
 
         elif choice == "3":
-            t = input("  Threshold % (default 75): ").strip()
-            threshold = float(t) if t else 75.0
-            low = low_attendance_students(df, threshold)
-            if low.empty:
-                print(f"\n  No students below {threshold}%")
-            else:
-                print(f"\n  Students below {threshold}%:")
-                print_table(low)
+            show_low_attendance(df)
 
         elif choice == "4":
-            dept = department_attendance(df)
-            print_table(dept)
-            print_bar_chart(dept, "Department", "Avg_Attendance_Pct",
-                            "Department-wise Attendance")
+            show_department_report(df)
 
         elif choice == "5":
-            col = college_attendance(df)
-            print_table(col)
-            print_bar_chart(col, "College", "Avg_Attendance_Pct",
-                            "College-wise Attendance")
+            show_subject_report(df)
 
         elif choice == "6":
-            subj = subject_attendance(df)
-            print_table(subj)
-            print_bar_chart(subj, "Subject", "Avg_Attendance_Pct",
-                            "Subject-wise Attendance")
+            show_daily_trend(df)
 
         elif choice == "7":
-            trend = daily_trend(df)
-            print_table(trend)
-            print_line_chart(trend["Avg_Attendance_Pct"],
-                             "Daily Attendance Trend")
-
-        elif choice == "8":
-            t = input("  Alert threshold % (default 60): ").strip()
-            threshold = float(t) if t else 60.0
-            missing = missing_class_detection(df, threshold)
-            if missing.empty:
-                print(f"\n  No classes below {threshold}%")
-            else:
-                print(f"\n  Classes with attendance < {threshold}%:")
-                print_table(missing)
-
-        elif choice == "9":
-            insights = generate_insights(df)
-            print("\n  ── KEY INSIGHTS ──────────────────────────")
-            for i, insight in enumerate(insights, 1):
-                print(f"  {i}. {insight}")
-
-        elif choice == "10":
             export_reports(df)
 
-        else:
-            print("  Invalid option, try again.")
+        elif choice == "0":
+            print("\nExiting...\n")
+            break
 
-        input("\n  Press Enter to continue...")
+        else:
+            print("\nInvalid option\n")
+
+        input("\nPress Enter to continue...")
 
 
 # ──────────────────────────────────────────────
-# 8.  ENTRY POINT
+# 7. MAIN FUNCTION
 # ──────────────────────────────────────────────
 
 def main():
-    print("\n" + "="*60)
-    print("  ATTENDANCE ANALYTICS SYSTEM")
-    print("="*60)
+
+    print("\nATTENDANCE ANALYTICS SYSTEM\n")
 
     data_dir = "attendance_data"
 
-    # Generate sample data if none exists
-    if not os.path.exists(os.path.join(data_dir, "students.csv")):
-        print("\n  No data found. Generating sample data...\n")
+    if not os.path.exists(f"{data_dir}/students.csv"):
+
+        print("Generating sample data...")
+
         generate_sample_data(data_dir)
 
-    print("\n  Loading and merging data...")
+    print("Loading data...\n")
+
     df = load_and_merge(data_dir)
-    print(f"  Loaded {len(df)} attendance records for "
-          f"{df['Student_ID'].nunique()} students.\n")
 
-    interactive_menu(df)
+    print(f"Loaded {len(df)} attendance records.\n")
 
+    menu(df)
+
+
+# ──────────────────────────────────────────────
+# 8. ENTRY POINT
+# ──────────────────────────────────────────────
 
 if __name__ == "__main__":
     main()
