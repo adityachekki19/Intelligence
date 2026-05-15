@@ -1,5 +1,3 @@
-Streamlit	
-Pandas	
-NumPy	
-Matplotlib	
-
+numpy
+pandas
+openpyxl
